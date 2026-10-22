@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MKI Report</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MKI Report">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#990000">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root { --red:#990000; --red-dark:#6e0000; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body {
+    background:var(--red); color:#fff;
+    font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display:flex; flex-direction:column; align-items:center; justify-content:space-between;
+    padding:calc(env(safe-area-inset-top) + 48px) 24px calc(env(safe-area-inset-bottom) + 32px);
+    text-align:center; -webkit-user-select:none; user-select:none;
+  }
+  .top { width:100%; max-width:420px; }
+  .logo { width:62%; max-width:260px; height:auto; display:block; margin:0 auto 28px; }
+  h1 { font-size:24px; font-weight:600; margin:0 0 6px; letter-spacing:.2px; }
+  .date { font-size:18px; opacity:.85; margin:0; }
+  .start {
+    display:block; width:100%; max-width:420px;
+    background:#fff; color:var(--red); text-decoration:none;
+    font-size:22px; font-weight:700; padding:22px 20px; border-radius:16px;
+    box-shadow:0 2px 0 var(--red-dark);
+  }
+  .start:active { transform:translateY(1px); background:#f3e6e6; }
+  .hint { font-size:15px; opacity:.8; margin:16px auto 0; max-width:360px; line-height:1.45; }
+  .bottom { width:100%; display:flex; flex-direction:column; align-items:center; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <img class="logo" src="logo-white.svg" alt="MKI LLC">
+    <h1>End of Day Report</h1>
+    <p class="date" id="today"></p>
+  </div>
+  <div class="bottom">
+    <a class="start" id="start" href="#" target="_blank" rel="noopener">Start today's report</a>
+    <p class="hint">Takes about 3 minutes. Tap the microphone on your keyboard to talk instead of typing.</p>
+  </div>
+<script>
+  var FORM_URL = "https://forms.cloud.microsoft/r/P6t05bFAV2";
+  document.getElementById('start').href = FORM_URL;
+  function showDate() {
+    document.getElementById('today').textContent =
+      new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+  }
+  showDate();
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) showDate(); });
+</script>
+</body>
+</html>

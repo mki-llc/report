@@ -8,52 +8,76 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="MKI Report">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#990000">
+<meta name="theme-color" content="#1E1B1B">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&display=swap" rel="stylesheet">
 <style>
-  :root { --red:#990000; --red-dark:#6e0000; }
+  :root { --red:#990000; --accent:#E0242A; --char:#1E1B1B; }
   * { box-sizing:border-box; }
-  html,body { margin:0; height:100%; }
+  html, body { margin:0; min-height:100%; }
+  html { background:var(--char); }
   body {
-    background:var(--red); color:#fff;
-    font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    display:flex; flex-direction:column; align-items:center; justify-content:space-between;
-    padding:calc(env(safe-area-inset-top) + 48px) 24px calc(env(safe-area-inset-bottom) + 32px);
-    text-align:center; -webkit-user-select:none; user-select:none;
+    min-height:100vh; min-height:100dvh;
+    color:#fff;
+    background:
+      repeating-linear-gradient(45deg, rgba(255,255,255,.034) 0 13px, transparent 13px 32.5px),
+      linear-gradient(180deg, var(--char) 0%, #3A1414 45%, var(--red) 100%);
+    background-attachment: fixed;
+    font-family:"Barlow Condensed", "Arial Narrow", sans-serif;
+    display:flex; flex-direction:column; justify-content:space-between;
+    padding: max(96px, calc(env(safe-area-inset-top) + 56px)) 28px calc(env(safe-area-inset-bottom) + 44px);
+    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent;
   }
-  .top { width:100%; max-width:420px; }
-  .logo { width:62%; max-width:260px; height:auto; display:block; margin:0 auto 28px; }
-  h1 { font-size:24px; font-weight:600; margin:0 0 6px; letter-spacing:.2px; }
-  .date { font-size:18px; opacity:.85; margin:0; }
+  .top, .bottom { width:100%; max-width:420px; }
+  .logo { width:150px; height:auto; display:block; margin-bottom:64px; }
+  .tag {
+    display:inline-flex; align-items:center; gap:10px;
+    background:rgba(0,0,0,.32); border-radius:6px; padding:7px 14px 7px 12px;
+    font-weight:700; font-size:18px; letter-spacing:.10em; color:rgba(255,255,255,.9);
+    margin-bottom:28px;
+  }
+  .tag::before { content:""; width:4px; height:16px; border-radius:2px; background:var(--accent); }
+  .weekday { font-weight:700; font-size:32px; letter-spacing:.14em; color:rgba(255,255,255,.7); line-height:1.15; margin:0 0 4px; }
+  .date { font-weight:800; font-size:60px; line-height:.9; margin:0; white-space:nowrap; }
   .start {
-    display:block; width:100%; max-width:420px;
+    display:flex; align-items:center; justify-content:center; gap:12px;
+    width:100%; padding:22px 20px; border-radius:12px;
     background:#fff; color:var(--red); text-decoration:none;
-    font-size:22px; font-weight:700; padding:22px 20px; border-radius:16px;
-    box-shadow:0 2px 0 var(--red-dark);
+    font-weight:700; font-size:24px; letter-spacing:.04em;
+    box-shadow:0 8px 24px rgba(0,0,0,.22); white-space:nowrap;
   }
-  .start:active { transform:translateY(1px); background:#f3e6e6; }
-  .hint { font-size:15px; opacity:.8; margin:16px auto 0; max-width:360px; line-height:1.45; }
-  .bottom { width:100%; display:flex; flex-direction:column; align-items:center; }
+  .start:active { transform:translateY(1px); background:#f4e8e8; }
+  .start svg { width:22px; height:22px; flex:none; }
+  .hint {
+    font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size:14px; line-height:1.45; color:rgba(255,255,255,.72); margin:14px 0 0;
+  }
 </style>
 </head>
 <body>
   <div class="top">
     <img class="logo" src="logo-white.svg" alt="MKI LLC">
-    <h1>End of Day Report</h1>
-    <p class="date" id="today"></p>
+    <div class="tag">END OF DAY REPORT</div>
+    <p class="weekday" id="weekday"></p>
+    <p class="date" id="date"></p>
   </div>
   <div class="bottom">
-    <a class="start" id="start" href="#" target="_blank" rel="noopener">Start today's report</a>
+    <a class="start" id="start" href="#" target="_blank" rel="noopener">START TODAY'S REPORT
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="#990000" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
     <p class="hint">Takes about 3 minutes. Tap the microphone on your keyboard to talk instead of typing.</p>
   </div>
 <script>
   var FORM_URL = "https://forms.cloud.microsoft/r/P6t05bFAV2";
   document.getElementById('start').href = FORM_URL;
   function showDate() {
-    document.getElementById('today').textContent =
-      new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+    var d = new Date();
+    document.getElementById('weekday').textContent = d.toLocaleDateString('en-US', { weekday:'long' }).toUpperCase();
+    document.getElementById('date').textContent = d.toLocaleDateString('en-US', { month:'long', day:'numeric' }).toUpperCase();
   }
   showDate();
   document.addEventListener('visibilitychange', function () { if (!document.hidden) showDate(); });

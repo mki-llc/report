@@ -40,6 +40,7 @@
   function openLayer(html) { $layer.innerHTML = html; document.body.style.overflow = 'hidden'; }
   function isWide() { return window.matchMedia('(min-width:700px)').matches; }
 
+  var MAXP = 30; // photos per report
   /* ---------------- draft ---------------- */
   function newDraft() { return { date: todayKey(), job: null, start: null, finish: null, crew: 0, work: '', mat: { yes: null, text: '' }, delay: { yes: null, text: '' }, safety: { yes: null, text: '' }, plan: '', photos: [], weather: null, errors: null }; }
   function D() { var s = S(); if (!s.draft || s.draft.date !== todayKey()) { s.draft = newDraft(); } return s.draft; }
@@ -121,8 +122,8 @@
   }
   function photosCard(d) {
     var tiles = d.photos.map(function (p, i) { return '<div class="tile" style="background-image:url(' + p + ')"><button class="rm" data-act="rmphoto" data-i="' + i + '" aria-label="Remove photo">' + I('x', 14, '#fff') + '</button></div>'; }).join('');
-    return '<section class="card" id="q-photos"><div class="ph-h">' + qLabel(9, 'PHOTOS') + '<span class="help" style="font-weight:500">' + d.photos.length + ' of 10 · optional</span></div>' +
-      '<div class="grid">' + tiles + (d.photos.length < 10 ? '<label class="addt">' + I('camera', 24) + 'Add<input type="file" accept="image/*" multiple class="sr" data-act="photos"></label>' : '') + '</div></section>';
+    return '<section class="card" id="q-photos"><div class="ph-h">' + qLabel(9, 'PHOTOS') + '<span class="help" style="font-weight:500">' + d.photos.length + ' of ' + MAXP + ' · optional</span></div>' +
+      '<div class="grid">' + tiles + (d.photos.length < MAXP ? '<label class="addt">' + I('camera', 24) + 'Add<input type="file" accept="image/*" multiple class="sr" data-act="photos"></label>' : '') + '</div></section>';
   }
   function jobCard(d, e) {
     var j = d.job;
@@ -217,7 +218,7 @@
     var now = new Date(), s = S();
     var id = 'r' + now.getTime();
     var rep = { id: id, date: todayKey(), person: s.me, job: d.job.num || ('new:' + d.job.name), jobName: d.job.num ? null : d.job.name, sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
-      start: d.start, finish: d.finish, crew: d.crew, weather: d.weather || '', work: d.work.trim(), mat: d.mat, delay: d.delay, safety: d.safety, plan: d.plan.trim(), photos: d.photos.length, photoData: d.photos.slice(0, 10) };
+      start: d.start, finish: d.finish, crew: d.crew, weather: d.weather || '', work: d.work.trim(), mat: d.mat, delay: d.delay, safety: d.safety, plan: d.plan.trim(), photos: d.photos.length, photoData: d.photos.slice(0, MAXP) };
     if (d.job.requested) s.requests.push({ id: 'q' + now.getTime(), name: d.job.name, by: s.me, date: todayKey(), note: d.job.addr || '' });
     s.reports.unshift(rep);
     s.recent[s.me] = s.recent[s.me] || {}; s.recent[s.me].hours = { start: d.start, finish: d.finish };
@@ -491,7 +492,7 @@
       case 'tdone': var p3 = parseT(TT.buf, TT.ap); if (!p3.ok) return; d = D(); d[TT.k] = p3.hm; if (d.errors && d.start && d.finish) delete d.errors.hours; saveSoon(); var nextK = TT.k === 'start' && !d.finish ? 'finish' : null; closeLayer(); refresh('q-hours'); if (nextK) openTime(nextK); break;
       case 'same': d = D(); var rec = (S().recent[S().me] || {}).hours; if (!rec) { var last = S().reports.filter(function (r) { return r.person === S().me; })[0]; rec = last ? { start: last.start, finish: last.finish } : { start: '07:00', finish: '15:30' }; } d.start = rec.start; d.finish = rec.finish; if (d.errors) delete d.errors.hours; saveSoon(); refresh('q-hours'); toast('Filled in ' + fmt12(rec.start) + ' to ' + fmt12(rec.finish)); break;
       case 'crew': d = D(); d.crew = Math.max(0, Math.min(99, d.crew + (+t.dataset.d))); var n = document.getElementById('crewn'); n.textContent = d.crew; n.classList.toggle('zero', !d.crew); if (d.errors && d.crew && d.errors.crew) { delete d.errors.crew; refresh('q-crew'); } saveSoon(); break;
-      case 'yn': d = D(); d[t.dataset.k].yes = t.dataset.v === '1'; if (!d[t.dataset.k].yes) d[t.dataset.k].text = ''; if (d.errors) delete d.errors[t.dataset.k]; saveSoon(); refresh('q-' + t.dataset.k); if (t.dataset.v === '1') { var ta = document.querySelector('[data-f="' + t.dataset.k + '.text"]'); if (ta) ta.focus({ preventScroll: true }); } break;
+      case 'yn': if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); d = D(); d[t.dataset.k].yes = t.dataset.v === '1'; if (!d[t.dataset.k].yes) d[t.dataset.k].text = ''; if (d.errors) delete d.errors[t.dataset.k]; saveSoon(); refresh('q-' + t.dataset.k); break;
       case 'rmphoto': d = D(); d.photos.splice(+t.dataset.i, 1); saveSoon(); refresh('q-photos'); break;
       case 'send': send(); break;
       case 'soon': toast('Works once the app is connected to MKI’s SharePoint.'); break;
@@ -526,7 +527,7 @@
 
   /* Photos are shrunk on the phone before saving, so reports stay small. */
   function addPhotos(files) {
-    var d = D(), list = Array.prototype.slice.call(files, 0, 10 - d.photos.length);
+    var d = D(), list = Array.prototype.slice.call(files, 0, MAXP - d.photos.length);
     var jobs = list.map(function (f) {
       return new Promise(function (res) {
         var img = new Image(), url = URL.createObjectURL(f);

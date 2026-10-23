@@ -10,7 +10,8 @@
 html,body{margin:0;padding:0}
 html{background:var(--bg)}
 body{font-family:var(--in);color:var(--ink);background:var(--bg);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%;min-height:100vh;min-height:100dvh}
-button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+a,label,select{touch-action:manipulation}
 input,textarea,select{font:inherit;color:inherit}
 .ic{flex:none;display:block}
 .bc{font-family:var(--bc)}
@@ -53,7 +54,7 @@ input,textarea,select{font:inherit;color:inherit}
 .start .go:active{transform:translateY(1px);background:#f4e8e8}
 .start .hint{font:14px/1.45 var(--in);color:rgba(255,255,255,.72);margin:14px 0 0}
 .start .who{font:500 14px var(--in);color:rgba(255,255,255,.6);margin:14px 0 0}
-.start .who button{color:rgba(255,255,255,.85);text-decoration:underline;text-underline-offset:3px;font-weight:600}
+.start .who button{padding:12px 0;margin:-12px 0;color:rgba(255,255,255,.85);text-decoration:underline;text-underline-offset:3px;font-weight:600}
 
 .signin{padding:max(110px,calc(env(safe-area-inset-top) + 70px)) 28px calc(env(safe-area-inset-bottom) + 48px)}
 .signin .logo{width:130px;display:block;margin-bottom:56px}
@@ -106,7 +107,7 @@ input,textarea,select{font:inherit;color:inherit}
 .tfoot{display:flex;align-items:center;gap:12px}
 .tfoot .s{flex:1;display:flex;align-items:center;gap:6px;font:600 14px var(--in);color:var(--mut);min-width:0}
 .tfoot .s.has{color:var(--ink)}
-.tfoot .same{font:600 14px var(--in);color:var(--ink);text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
+.tfoot .same{padding:13px 0;margin:-13px 0;font:600 14px var(--in);color:var(--ink);text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
 .step{display:flex;gap:12px}
 .step button{width:56px;height:56px;border-radius:12px;background:#fff;box-shadow:inset 0 0 0 1.5px var(--char);display:flex;align-items:center;justify-content:center}
 .step button:active{background:var(--soft)}
@@ -126,7 +127,7 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 .ph-h{display:flex;justify-content:space-between;align-items:baseline}
 .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .tile{aspect-ratio:1;border-radius:10px;background:var(--ph) center/cover no-repeat;position:relative;display:flex;align-items:center;justify-content:center}
-.tile .rm{position:absolute;top:4px;right:4px;width:26px;height:26px;border-radius:999px;background:rgba(30,27,27,.75);display:flex;align-items:center;justify-content:center}
+.tile .rm{position:absolute;top:2px;right:2px;width:32px;height:32px;border-radius:999px;background:rgba(30,27,27,.75);display:flex;align-items:center;justify-content:center}
 .addt{aspect-ratio:1;border-radius:10px;background:#fff;box-shadow:inset 0 0 0 1px var(--char);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 13px var(--in)}
 .banner{display:flex;align-items:center;gap:10px;background:var(--errbg);color:var(--err);border-radius:12px;padding:14px;font:600 14px var(--in)}
 .sendrow{display:flex;flex-direction:column;gap:12px;padding-bottom:calc(env(safe-area-inset-bottom) + 24px)}
@@ -147,7 +148,7 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 .jrow:active,.jrow.on{background:var(--soft)}
 .jrow b{font:600 16px var(--in)}
 .jrow span{font:13px var(--in);color:var(--mut)}
-.reqlink{display:flex;align-items:center;gap:8px;padding:6px 0;font:600 15px var(--in)}
+.reqlink{display:flex;align-items:center;gap:8px;padding:12px 0;min-height:44px;font:600 15px var(--in)}
 .empty{font:14px var(--in);color:var(--mut);padding:12px}
 .fld{display:flex;flex-direction:column;gap:6px}
 .fld label{font:600 14px var(--in)}
@@ -175,6 +176,21 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 @keyframes blink{50%{opacity:0}}
 .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 24px);transform:translateX(-50%);z-index:60;background:var(--char);color:#fff;border-radius:12px;padding:12px 16px;font:500 14px var(--in);box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:calc(100% - 32px);animation:fade .2s}
+
+/* Short phones (iPhone SE, mini): keep the whole tray, including Done, on screen */
+.tray{overflow-y:auto;overscroll-behavior:contain}
+@media (max-height:740px){
+  .tray{gap:10px;padding-bottom:calc(env(safe-area-inset-bottom) + 14px)}
+  .th h2{font-size:24px}
+  .tt-disp{min-height:70px;padding:6px}
+  .tt-disp .t{font-size:48px}
+  .tt-disp .cur{height:36px}
+  .ampm button{padding:9px;font-size:22px}
+  .pad{gap:6px}
+  .pad button{height:46px}
+  .tt-hint{display:none}
+  .tray .btn-primary{padding:14px 24px;font-size:20px}
+}
 
 /* ---------- Landscape cover (foreman, touch devices) ---------- */
 .rotate{display:none}
@@ -350,6 +366,8 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
   .tabs a{width:80px;display:flex;flex-direction:column;align-items:center;gap:4px;font:500 11px var(--in);color:#A39999;text-decoration:none}
   .tabs a.on{color:var(--char);font-weight:600}
   .filters .dd{flex:1}
+  .dd select,.osearch input{font-size:16px}
+  .back{padding:12px 0;margin:-12px 0}
   .filters .dd select{width:100%}
   .reqrow .obtn{flex:1}
 }

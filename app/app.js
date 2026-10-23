@@ -109,7 +109,7 @@
   }
   function textCard(n, key, title, d, e, ph) {
     return '<section class="card' + (e[key] ? ' bad' : '') + '" id="q-' + key + '">' + qLabel(n, title) +
-      '<textarea data-f="' + key + '" placeholder="' + (ph || 'Type or tap the mic to talk') + '" rows="4">' + esc(d[key]) + '</textarea>' +
+      '<textarea aria-label="' + title + '" data-f="' + key + '" placeholder="' + (ph || 'Type or tap the mic to talk') + '" rows="4">' + esc(d[key]) + '</textarea>' +
       '<div class="mic">' + I('mic', 16) + 'Tap the mic on your keyboard to talk</div>' + (e[key] ? emsg(e[key]) : '') + '</section>';
   }
   function ynCard(n, key, title, d, e, detail) {
@@ -132,6 +132,31 @@
       (e.job ? emsg(e.job) : '') + '</section>';
   }
 
+  /* Update only the card that changed, so the page never re-draws or jumps under your thumb. */
+  var CARD = {
+    'q-job': function (d, e) { return jobCard(d, e); },
+    'q-hours': function (d, e) { return hoursCard(d, e); },
+    'q-crew': function (d, e) { return crewCard(d, e); },
+    'q-mat': function (d, e) { return ynCard(5, 'mat', 'MATERIALS, EQUIPMENT, OR INSPECTIONS', d, e, 'What’s needed?'); },
+    'q-delay': function (d, e) { return ynCard(6, 'delay', 'WEATHER, SITE, OR OTHER-TRADE DELAYS', d, e, 'What happened?'); },
+    'q-safety': function (d, e) { return ynCard(7, 'safety', 'SAFETY OR QUALITY ISSUES', d, e, 'What happened?'); },
+    'q-photos': function (d) { return photosCard(d); }
+  };
+  function updateBanner() {
+    var d = D(), n = d.errors ? Object.keys(d.errors).length : 0, b = document.getElementById('banner');
+    if (!b) return;
+    if (!n) { b.remove(); d.errors = null; return; }
+    b.innerHTML = I('alert-circle', 20) + (n === 1 ? '1 answer is missing. It’s marked below.' : n + ' answers are missing. They’re marked below.');
+  }
+  function refresh(id) {
+    var el = document.getElementById(id), d = D();
+    if (!el || !CARD[id]) { var y = window.scrollY; renderReport(); window.scrollTo(0, y); return; }
+    var top = el.getBoundingClientRect().top;
+    el.outerHTML = CARD[id](d, d.errors || {});
+    if (id === 'q-job') { var wx = document.querySelector('.wx'); if (wx) wx.innerHTML = I('sun', 16, '#6B6262') + (d.job ? (d.weather ? esc(d.weather) + ' at the job site · added for you' : 'Getting the weather for the job site…') : 'Weather is added for you once you pick a job'); if (d.job && !d.weather) getWeather(); }
+    updateBanner();
+    var n = document.getElementById(id); if (n) { var dy = n.getBoundingClientRect().top - top; if (Math.abs(dy) > 0.5) window.scrollBy(0, dy); }
+  }
   function renderReport() {
     var d = D(), e = d.errors || {}, k = todayKey(), me = person(S().me);
     var nErr = Object.keys(e).length;
@@ -174,6 +199,7 @@
     var e = {};
     if (!d.job) e.job = 'Pick a job';
     if (!d.start || !d.finish) e.hours = 'Add your start and finish time';
+    else if (d.start === d.finish) e.hours = 'Start and finish can’t be the same time';
     if (!d.crew) e.crew = 'Add how many people were on site';
     if (!d.work.trim()) e.work = 'Say what got done today';
     ['mat', 'delay', 'safety'].forEach(function (k) { if (d[k].yes === null) e[k] = 'Pick yes or no'; else if (d[k].yes && !d[k].text.trim()) e[k] = 'Add a few words'; });
@@ -233,7 +259,7 @@
   }
   function openJobs() {
     openLayer('<div class="dim" data-act="close"></div><div class="tray sheet" role="dialog" aria-label="Choose a job"><div class="grab"></div><div class="th"><h2>Choose a job</h2><button class="btn btn-tertiary" data-act="close">CANCEL</button></div>' +
-      '<div class="search">' + I('search', 20, '#6B6262') + '<input type="search" placeholder="Search jobs" data-act="jobq" autocomplete="off"></div><div class="scroll" id="jlist">' + jobTray('') + '</div></div>');
+      '<div class="search">' + I('search', 20, '#6B6262') + '<input type="search" aria-label="Search jobs" placeholder="Search jobs" data-act="jobq" autocomplete="off"></div><div class="scroll" id="jlist">' + jobTray('') + '</div></div>');
   }
   function openReqJob(prefill) {
     openLayer('<div class="dim" data-act="close"></div><div class="tray sheet" role="dialog" aria-label="New job"><div class="grab"></div><div class="th"><h2>New job</h2><button class="btn btn-tertiary" data-act="jobs">BACK</button></div>' +
@@ -266,19 +292,23 @@
   }
   function drawTime() {
     var p = parseT(TT.buf, TT.ap), ap = p.ok && p.autoPM ? p.ap : TT.ap, d = D();
-    var shown = TT.buf ? (p.ok ? p.shown : (TT.buf.length > 2 ? TT.buf.slice(0, TT.buf.length - 2) + ':' + TT.buf.slice(-2) : TT.buf)) : '7:00';
+    var shown = TT.buf ? (p.ok ? p.shown : (TT.buf.length > 2 ? TT.buf.slice(0, TT.buf.length - 2) + ':' + TT.buf.slice(-2) : TT.buf)) : (TT.k === 'start' ? '7:00' : '3:30');
     var over = false, note = '';
     if (p.ok && TT.k === 'finish' && d.start) { var x = dur(d.start, p.hm); over = x.over; if (over) note = 'Started ' + fmt12(d.start) + ', finishing ' + fmt12(p.hm) + '. That’s overnight, so it counts as ' + durText(x.mins) + ' ending the next morning.'; }
     if (p.ok && TT.k === 'start' && d.finish) { var y = dur(p.hm, d.finish); if (y.over) note = 'Finish is ' + fmt12(d.finish) + ', so this counts as an overnight shift (' + durText(y.mins) + ').'; }
     var keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(function (n) { return '<button data-act="key" data-k="' + n + '">' + n + '</button>'; }).join('') +
       '<button class="fn" data-act="key" data-k="clear">Clear</button><button data-act="key" data-k="0">0</button><button class="fn" data-act="key" data-k="del" aria-label="Delete">' + I('delete', 24) + '</button>';
-    openLayer('<div class="dim" data-act="close"></div><div class="tray sheet narrow" role="dialog" aria-label="Time"><div class="grab"></div><div class="th"><h2>' + (TT.k === 'start' ? 'When did you start?' : 'When did you finish?') + '</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
-      '<div class="tt-disp"><span class="t' + (TT.buf ? '' : ' ph') + '">' + shown + '</span><span class="cur"></span><span class="ap">' + ap + '</span>' + (over ? '<span class="nd">NEXT DAY</span>' : '') + '</div>' +
-      '<div class="ampm"><button class="' + (ap === 'AM' ? 'on' : '') + '" data-act="ap" data-v="AM">' + I('sun', 20) + 'AM</button><button class="' + (ap === 'PM' ? 'on' : '') + '" data-act="ap" data-v="PM">' + I('moon', 20) + 'PM</button></div>' +
+    var inner = '<div class="grab"></div><div class="th"><h2>' + (TT.k === 'start' ? 'When did you start?' : 'When did you finish?') + '</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
+      '<div class="tt-disp" aria-live="polite"><span class="t' + (TT.buf ? '' : ' ph') + '">' + shown + '</span><span class="cur"></span><span class="ap">' + ap + '</span>' + (over ? '<span class="nd">NEXT DAY</span>' : '') + '</div>' +
+      '<div class="ampm"><button class="' + (ap === 'AM' ? 'on' : '') + '" data-act="ap" data-v="AM" aria-pressed="' + (ap === 'AM') + '">' + I('sun', 20) + 'AM</button><button class="' + (ap === 'PM' ? 'on' : '') + '" data-act="ap" data-v="PM" aria-pressed="' + (ap === 'PM') + '">' + I('moon', 20) + 'PM</button></div>' +
       '<div class="pad">' + keys + '</div>' +
-      (p.bad ? '<div class="tt-err">That’s not a real time. Check the minutes.</div>' : '<div class="tt-hint">Type 728 for 7:28. Typing 1930 works too, it switches to 7:30 PM.</div>') +
+      (p.bad ? '<div class="tt-err" role="alert">That’s not a real time. Check the minutes.</div>' : '<div class="tt-hint">Type 728 for 7:28. Typing 1930 works too, it switches to 7:30 PM.</div>') +
       (note ? '<div class="tt-note">' + I('moon', 18) + '<span>' + esc(note) + '</span></div>' : '') +
-      '<button class="btn btn-primary" data-act="tdone"' + (p.ok ? '' : ' disabled') + '>DONE</button></div>');
+      '<button class="btn btn-primary" data-act="tdone"' + (p.ok ? '' : ' disabled') + '>DONE</button>';
+    // Update the open tray in place so it doesn't slide in again on every key press.
+    var tray = $layer.querySelector('.tray[data-tt="' + TT.k + '"]');
+    if (tray) { tray.innerHTML = inner; return; }
+    openLayer('<div class="dim" data-act="close"></div><div class="tray sheet narrow" data-tt="' + TT.k + '" role="dialog" aria-modal="true" aria-label="' + (TT.k === 'start' ? 'Start time' : 'Finish time') + '">' + inner + '</div>');
   }
 
   /* ---------------- office shell ---------------- */
@@ -291,7 +321,7 @@
     $app.innerHTML = previewBar('o') + '<div class="of">' + side + '<main class="main">' + fn() + '</main></div>' + tabs;
   }
   var F = { job: '', who: '', range: '7', flag: '', q: '', chips: {}, more: 9, jobsShow: 'active', jq: '' };
-  function dd(name, val, opts) { return '<label class="dd"><select data-fil="' + name + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 16) + '</label>'; }
+  function dd(name, val, opts) { return '<label class="dd"><select aria-label="' + esc(opts[0][1]) + '" data-fil="' + name + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 16) + '</label>'; }
   function jobOpts(all) { return [['', all]].concat(S().jobs.filter(function (j) { return j.active; }).sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (j) { return [j.num, j.name]; })); }
   function whoOpts(all) { return [['', all]].concat(S().people.map(function (p) { return [p.id, p.name]; })); }
   function thumbs(r) { var n = r.photos, a = ''; for (var i = 0; i < Math.min(n, 3); i++) a += r.photoData && r.photoData[i] ? '<span class="th36" style="background:url(' + r.photoData[i] + ') center/cover"></span>' : '<span class="th36">' + I('image', 14, '#fff') + '</span>'; if (n > 3) a += '<span class="mut" style="font:600 13px var(--in)">+' + (n - 3) + '</span>'; if (!n) a = '<span class="mut">None</span>'; return '<div class="thumbs">' + a + '</div>'; }
@@ -342,7 +372,7 @@
     });
     var shown = list.slice(0, F.more);
     var chip = function (k, t) { return '<button class="chip' + (F.chips[k] ? ' on' : '') + '" data-act="chip" data-k="' + k + '">' + t + '</button>'; };
-    return '<h1 class="h1">All reports</h1><div class="filters"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" placeholder="Search notes, jobs, foremen" value="' + esc(F.q) + '" data-fil="q"></label>' +
+    return '<h1 class="h1">All reports</h1><div class="filters"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" aria-label="Search reports" placeholder="Search notes, jobs, foremen" value="' + esc(F.q) + '" data-fil="q"></label>' +
       dd('range', F.range, [['7', 'Last 7 days'], ['30', 'Last 30 days'], ['all', 'All time']]) + dd('job', F.job, jobOpts('All jobs')) + dd('who', F.who, whoOpts('All foremen')) + '</div>' +
       '<div class="chips">Quick filters ' + chip('mat', 'Needs materials') + chip('delay', 'Delays') + chip('safety', 'Safety') + chip('photos', 'Has photos') + '</div>' +
       '<div class="tbl cards"><table><thead><tr><th>DATE</th><th>JOB</th><th>FOREMAN</th><th>CREW</th><th>FLAGS</th><th>PHOTOS</th><th></th></tr></thead><tbody>' + (shown.length ? repRows(shown, 'crew') : '<tr><td colspan="7" class="mut">No reports match these filters.</td></tr>') + '</tbody></table></div>' +
@@ -387,7 +417,7 @@
     }).join('');
     return '<div class="toprow"><h1 class="h1">Jobs</h1><button class="obtn primary" data-act="addjob">' + I('plus', 18, '#fff') + 'Add job</button></div>' +
       (s.requests.length ? '<div class="reqc"><div class="top">' + pill(s.requests.length + (s.requests.length === 1 ? ' new job request' : ' new job requests'), 'warn') + 'Foremen can ask for a job that isn’t on the list. Approve it, or merge it into a job that already exists.</div>' + reqs + '</div>' : '') +
-      '<div class="filters"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" placeholder="Search jobs" value="' + esc(F.jq) + '" data-fil="jq"></label>' + dd('jobsShow', F.jobsShow, [['active', 'Active jobs'], ['finished', 'Finished jobs'], ['all', 'All jobs']]) + '</div>' +
+      '<div class="filters"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" aria-label="Search jobs" placeholder="Search jobs" value="' + esc(F.jq) + '" data-fil="jq"></label>' + dd('jobsShow', F.jobsShow, [['active', 'Active jobs'], ['finished', 'Finished jobs'], ['all', 'All jobs']]) + '</div>' +
       '<div class="tbl cards"><table><thead><tr><th>JOB</th><th>FOREMAN</th><th>LAST REPORT</th><th>REPORTS</th><th>STATUS</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="6" class="mut">No jobs here.</td></tr>') + '</tbody></table></div>' +
       '<div class="ofoot">Finished jobs drop off the foreman’s list but keep their reports and photos. Job numbers match the job folders. Tap ··· to mark a job finished or reopen it.</div>';
   }
@@ -447,9 +477,9 @@
       case 'done': go('#/'); break;
       case 'close': closeLayer(); break;
       case 'jobs': openJobs(); break;
-      case 'pickjob': d = D(); var j = job(t.dataset.num); if (!d.job || d.job.num !== j.num) { d.weather = null; } d.job = { num: j.num, name: j.name }; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); renderReport(); break;
+      case 'pickjob': d = D(); var j = job(t.dataset.num); if (!d.job || d.job.num !== j.num) { d.weather = null; } d.job = { num: j.num, name: j.name }; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
       case 'reqjob': var q = document.querySelector('[data-act=jobq]'); openReqJob(q ? q.value : ''); break;
-      case 'usejob': var nm = document.getElementById('nj').value.trim(); if (!nm) { document.getElementById('nj').focus(); return; } d = D(); d.job = { num: null, name: nm, requested: true, addr: document.getElementById('na').value.trim() }; d.weather = null; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); renderReport(); break;
+      case 'usejob': var nm = document.getElementById('nj').value.trim(); if (!nm) { document.getElementById('nj').focus(); return; } d = D(); d.job = { num: null, name: nm, requested: true, addr: document.getElementById('na').value.trim() }; d.weather = null; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
       case 'time': openTime(t.dataset.k); break;
       case 'ap': TT.ap = t.dataset.v; var pp = parseT(TT.buf, TT.ap); if (pp.ok && pp.autoPM) { /* 24h entry: convert back to 12h digits */ var m = toMin(pp.hm); TT.buf = String(Math.floor(m / 60) % 12 || 12) + String(m % 60).padStart(2, '0'); } TT.fresh = false; drawTime(); break;
       case 'key':
@@ -458,11 +488,11 @@
         if (key === 'clear') TT.buf = ''; else if (key === 'del') TT.buf = TT.buf.slice(0, -1); else if (TT.buf.length < 4) { if (!(TT.buf === '' && key === '0' && false)) TT.buf += key; }
         var p2 = parseT(TT.buf, TT.ap); if (p2.ok && p2.autoPM) TT.ap = p2.ap;
         drawTime(); break;
-      case 'tdone': var p3 = parseT(TT.buf, TT.ap); if (!p3.ok) return; d = D(); d[TT.k] = p3.hm; if (d.errors && d.start && d.finish) delete d.errors.hours; saveSoon(); var nextK = TT.k === 'start' && !d.finish ? 'finish' : null; closeLayer(); renderReport(); if (nextK) openTime(nextK); break;
-      case 'same': d = D(); var rec = (S().recent[S().me] || {}).hours; if (!rec) { var last = S().reports.filter(function (r) { return r.person === S().me; })[0]; rec = last ? { start: last.start, finish: last.finish } : { start: '07:00', finish: '15:30' }; } d.start = rec.start; d.finish = rec.finish; if (d.errors) delete d.errors.hours; saveSoon(); renderReport(); toast('Filled in ' + fmt12(rec.start) + ' to ' + fmt12(rec.finish)); break;
-      case 'crew': d = D(); d.crew = Math.max(0, Math.min(99, d.crew + (+t.dataset.d))); var n = document.getElementById('crewn'); n.textContent = d.crew; n.classList.toggle('zero', !d.crew); if (d.errors && d.crew && d.errors.crew) { delete d.errors.crew; renderReport(); } saveSoon(); break;
-      case 'yn': d = D(); d[t.dataset.k].yes = t.dataset.v === '1'; if (d.errors) delete d.errors[t.dataset.k]; saveSoon(); var y = window.scrollY; renderReport(); window.scrollTo(0, y); if (t.dataset.v === '1') { var ta = document.querySelector('[data-f="' + t.dataset.k + '.text"]'); if (ta) ta.focus({ preventScroll: true }); } break;
-      case 'rmphoto': d = D(); d.photos.splice(+t.dataset.i, 1); saveSoon(); var y2 = window.scrollY; renderReport(); window.scrollTo(0, y2); break;
+      case 'tdone': var p3 = parseT(TT.buf, TT.ap); if (!p3.ok) return; d = D(); d[TT.k] = p3.hm; if (d.errors && d.start && d.finish) delete d.errors.hours; saveSoon(); var nextK = TT.k === 'start' && !d.finish ? 'finish' : null; closeLayer(); refresh('q-hours'); if (nextK) openTime(nextK); break;
+      case 'same': d = D(); var rec = (S().recent[S().me] || {}).hours; if (!rec) { var last = S().reports.filter(function (r) { return r.person === S().me; })[0]; rec = last ? { start: last.start, finish: last.finish } : { start: '07:00', finish: '15:30' }; } d.start = rec.start; d.finish = rec.finish; if (d.errors) delete d.errors.hours; saveSoon(); refresh('q-hours'); toast('Filled in ' + fmt12(rec.start) + ' to ' + fmt12(rec.finish)); break;
+      case 'crew': d = D(); d.crew = Math.max(0, Math.min(99, d.crew + (+t.dataset.d))); var n = document.getElementById('crewn'); n.textContent = d.crew; n.classList.toggle('zero', !d.crew); if (d.errors && d.crew && d.errors.crew) { delete d.errors.crew; refresh('q-crew'); } saveSoon(); break;
+      case 'yn': d = D(); d[t.dataset.k].yes = t.dataset.v === '1'; if (!d[t.dataset.k].yes) d[t.dataset.k].text = ''; if (d.errors) delete d.errors[t.dataset.k]; saveSoon(); refresh('q-' + t.dataset.k); if (t.dataset.v === '1') { var ta = document.querySelector('[data-f="' + t.dataset.k + '.text"]'); if (ta) ta.focus({ preventScroll: true }); } break;
+      case 'rmphoto': d = D(); d.photos.splice(+t.dataset.i, 1); saveSoon(); refresh('q-photos'); break;
       case 'send': send(); break;
       case 'soon': toast('Works once the app is connected to MKI’s SharePoint.'); break;
       case 'chip': F.chips[t.dataset.k] = !F.chips[t.dataset.k]; F.more = 9; route(); break;
@@ -483,7 +513,7 @@
   });
   document.addEventListener('input', function (ev) {
     var t = ev.target;
-    if (t.dataset.f) { var d = D(), f = t.dataset.f; if (f.indexOf('.') > -1) { var p = f.split('.'); d[p[0]][p[1]] = t.value; f = p[0]; } else d[f] = t.value; if (d.errors && d.errors[f] && t.value.trim()) { delete d.errors[f]; var c = t.closest('.card'); c.classList.remove('bad'); var em = c.querySelector('.emsg'); if (em) em.remove(); } saveSoon(); autoGrow(t); }
+    if (t.dataset.f) { var d = D(), f = t.dataset.f; if (f.indexOf('.') > -1) { var p = f.split('.'); d[p[0]][p[1]] = t.value; f = p[0]; } else d[f] = t.value; if (d.errors && d.errors[f] && t.value.trim()) { delete d.errors[f]; var c = t.closest('.card'); c.classList.remove('bad'); var em = c.querySelector('.emsg'); if (em) em.remove(); updateBanner(); } saveSoon(); autoGrow(t); }
     if (t.dataset.act === 'jobq') document.getElementById('jlist').innerHTML = jobTray(t.value);
     if (t.dataset.fil === 'q' || t.dataset.fil === 'jq') { F[t.dataset.fil] = t.value; clearTimeout(window._ft); window._ft = setTimeout(function () { var pos = t.selectionStart; route(); var n = document.querySelector('[data-fil="' + t.dataset.fil + '"]'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }, 250); }
   });
@@ -504,7 +534,7 @@
         img.onerror = function () { res(null); }; img.src = url;
       });
     });
-    Promise.all(jobs).then(function (urls) { urls.forEach(function (u) { if (u) d.photos.push(u); }); saveSoon(); var y = window.scrollY; renderReport(); window.scrollTo(0, y); });
+    Promise.all(jobs).then(function (urls) { urls.forEach(function (u) { if (u) d.photos.push(u); }); saveSoon(); refresh('q-photos'); });
   }
 
   route();

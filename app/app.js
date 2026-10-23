@@ -70,7 +70,7 @@
   window.addEventListener('hashchange', route);
 
   function previewBar(active) {
-    return '<nav class="pv" aria-label="Preview"><a href="#/" class="' + (active === 'f' ? 'on' : '') + '">Foreman</a><a href="#/office" class="' + (active === 'o' ? 'on' : '') + '">Office</a></nav>';
+    return '<nav class="pv" aria-label="Preview"><span class="pvl">PREVIEW</span><a href="#/" class="' + (active === 'f' ? 'on' : '') + '">Foreman</a><a href="#/office" class="' + (active === 'o' ? 'on' : '') + '">Office</a></nav>';
   }
 
   /* ---------------- foreman: start ---------------- */
@@ -363,21 +363,34 @@
   }
 
   /* ---------------- office: all reports ---------------- */
-  function renderReports() {
-    var list = sorted().filter(function (r) {
+  function reportList() {
+    return sorted().filter(function (r) {
       if (F.job && r.job !== F.job) return false; if (F.who && r.person !== F.who) return false;
       if (F.range !== 'all') { var days = (dObj(todayKey()) - dObj(r.date)) / 864e5; if (days >= +F.range) return false; }
       var c = F.chips; if (c.mat && !r.mat.yes) return false; if (c.delay && !r.delay.yes) return false; if (c.safety && !r.safety.yes) return false; if (c.photos && !r.photos) return false;
       if (F.q) { var hay = [jobName(r), person(r.person).name, r.work, r.plan, r.mat.text, r.delay.text, r.safety.text].join(' ').toLowerCase(); if (hay.indexOf(F.q.toLowerCase()) < 0) return false; }
       return true;
     });
-    var shown = list.slice(0, F.more);
+  }
+  function resultsHTML() {
+    var list = reportList(), shown = list.slice(0, F.more);
+    return '<div class="tbl cards"><table><thead><tr><th>DATE</th><th>JOB</th><th>FOREMAN</th><th>CREW</th><th>FLAGS</th><th>PHOTOS</th><th></th></tr></thead><tbody>' + (shown.length ? repRows(shown, 'crew') : '<tr><td colspan="7" class="mut">No reports match these filters.</td></tr>') + '</tbody></table></div>' +
+      '<div class="pager"><span>Showing ' + shown.length + ' of ' + list.length + ' reports</span>' + (list.length > shown.length ? '<button class="obtn secondary" data-act="more">Load more</button>' : '') + '</div>';
+  }
+  /* Suggestions while typing: jobs and foremen that match, so a few letters is enough. */
+  function suggestHTML(q) {
+    q = (q || '').trim().toLowerCase(); if (!q) return '';
+    var jobs = S().jobs.filter(function (j) { return (j.name + ' ' + j.num).toLowerCase().indexOf(q) > -1; }).slice(0, 4).map(function (j) { return '<button class="sg" data-act="sug" data-k="job" data-v="' + j.num + '">' + I('briefcase', 16, '#6B6262') + '<span>' + esc(j.name) + '</span><em>Job</em></button>'; });
+    var ppl = S().people.filter(function (p) { return p.name.toLowerCase().indexOf(q) > -1; }).slice(0, 3).map(function (p) { return '<button class="sg" data-act="sug" data-k="who" data-v="' + p.id + '">' + I('user', 16, '#6B6262') + '<span>' + esc(p.name) + '</span><em>Foreman</em></button>'; });
+    var n = reportList().length;
+    return jobs.concat(ppl).join('') + '<div class="sg-note">' + n + (n === 1 ? ' report mentions' : ' reports mention') + ' “' + esc(q) + '”</div>';
+  }
+  function renderReports() {
     var chip = function (k, t) { return '<button class="chip' + (F.chips[k] ? ' on' : '') + '" data-act="chip" data-k="' + k + '">' + t + '</button>'; };
-    return '<h1 class="h1">All reports</h1><div class="filters"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" aria-label="Search reports" placeholder="Search notes, jobs, foremen" value="' + esc(F.q) + '" data-fil="q"></label>' +
+    return '<h1 class="h1">All reports</h1><div class="filters rf"><div class="osearch-w"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" aria-label="Search reports" placeholder="Search notes, jobs, foremen" value="' + esc(F.q) + '" data-fil="q" autocomplete="off"></label><div class="sugg" id="sugg" role="listbox"></div></div>' +
       dd('range', F.range, [['7', 'Last 7 days'], ['30', 'Last 30 days'], ['all', 'All time']]) + dd('job', F.job, jobOpts('All jobs')) + dd('who', F.who, whoOpts('All foremen')) + '</div>' +
       '<div class="chips">Quick filters ' + chip('mat', 'Needs materials') + chip('delay', 'Delays') + chip('safety', 'Safety') + chip('photos', 'Has photos') + '</div>' +
-      '<div class="tbl cards"><table><thead><tr><th>DATE</th><th>JOB</th><th>FOREMAN</th><th>CREW</th><th>FLAGS</th><th>PHOTOS</th><th></th></tr></thead><tbody>' + (shown.length ? repRows(shown, 'crew') : '<tr><td colspan="7" class="mut">No reports match these filters.</td></tr>') + '</tbody></table></div>' +
-      '<div class="pager"><span>Showing ' + shown.length + ' of ' + list.length + ' reports</span>' + (list.length > shown.length ? '<button class="obtn secondary" data-act="more">Load more</button>' : '') + '</div>';
+      '<div id="results">' + resultsHTML() + '</div>';
   }
 
   /* ---------------- office: report detail ---------------- */
@@ -418,8 +431,8 @@
     }).join('');
     return '<div class="toprow"><h1 class="h1">Jobs</h1><button class="obtn primary" data-act="addjob">' + I('plus', 18, '#fff') + 'Add job</button></div>' +
       (s.requests.length ? '<div class="reqc"><div class="top">' + pill(s.requests.length + (s.requests.length === 1 ? ' new job request' : ' new job requests'), 'warn') + 'Foremen can ask for a job that isn’t on the list. Approve it, or merge it into a job that already exists.</div>' + reqs + '</div>' : '') +
-      '<div class="filters"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" aria-label="Search jobs" placeholder="Search jobs" value="' + esc(F.jq) + '" data-fil="jq"></label>' + dd('jobsShow', F.jobsShow, [['active', 'Active jobs'], ['finished', 'Finished jobs'], ['all', 'All jobs']]) + '</div>' +
-      '<div class="tbl cards"><table><thead><tr><th>JOB</th><th>FOREMAN</th><th>LAST REPORT</th><th>REPORTS</th><th>STATUS</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="6" class="mut">No jobs here.</td></tr>') + '</tbody></table></div>' +
+      '<div class="filters"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" aria-label="Search jobs" placeholder="Search jobs" value="' + esc(F.jq) + '" data-fil="jq" autocomplete="off"></label>' + dd('jobsShow', F.jobsShow, [['active', 'Active jobs'], ['finished', 'Finished jobs'], ['all', 'All jobs']]) + '</div>' +
+      '<div class="tbl cards"><table><thead><tr><th>JOB</th><th>FOREMAN</th><th>LAST REPORT</th><th>REPORTS</th><th>STATUS</th><th></th></tr></thead><tbody id="jobsbody">' + (rows || '<tr><td colspan="6" class="mut">No jobs here.</td></tr>') + '</tbody></table></div>' +
       '<div class="ofoot">Finished jobs drop off the foreman’s list but keep their reports and photos. Job numbers match the job folders. Tap ··· to mark a job finished or reopen it.</div>';
   }
   function nextNum() { var yy = String(new Date().getFullYear()).slice(2), max = 3000; S().jobs.forEach(function (j) { var p = j.num.split('-'); if (p[0] === yy) max = Math.max(max, +p[1]); }); return yy + '-' + (max + 1); }
@@ -462,7 +475,7 @@
     var range = dObj(days[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' to ' + fri.getDate();
     return '<div class="toprow"><h1 class="h1">Foremen</h1><button class="obtn secondary" data-act="soon">' + I('plus', 18) + 'Add foreman</button></div>' +
       '<div class="filters">' + dd('week', 'this', [['this', 'This week · ' + range]]) + '<span class="mut" style="font:14px var(--in)">Who sent a report each workday</span></div>' +
-      '<div class="tbl"><div style="overflow-x:auto"><table><thead><tr><th>FOREMAN</th><th class="hide-m">USUAL JOB</th><th class="hide-m">MON</th><th class="hide-m">TUE</th><th class="hide-m">WED</th><th class="hide-m">THU</th><th class="hide-m">FRI</th><th>THIS WEEK</th><th><span class="hide-m">DAILY REMINDER</span><span class="show-m" title="Daily reminder">' + I('bell', 16) + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
+      '<div class="tbl"><div style="overflow-x:auto"><table class="fmt"><colgroup><col class="c-n"><col class="c-j hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-w"><col class="c-r"></colgroup><thead><tr><th>FOREMAN</th><th class="hide-m">USUAL JOB</th><th class="hide-m">MON</th><th class="hide-m">TUE</th><th class="hide-m">WED</th><th class="hide-m">THU</th><th class="hide-m">FRI</th><th>THIS WEEK</th><th><span class="hide-m">DAILY REMINDER</span><span class="show-m" title="Daily reminder">' + I('bell', 16) + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
       '<div class="remc"><div class="sec-t" style="font-size:15px;color:var(--mut)">Reminders</div><div class="r">' + I('bell', 20) + '<span style="flex:1">Anyone at MKI can sign in and send a report. People with Daily reminder on are expected every workday: if they haven’t sent one by 5:30 PM they get a text, and if it’s still missing at 7 PM you get an email.</span><button class="obtn link" data-act="soon">Change times</button></div></div>';
   }
 
@@ -497,7 +510,8 @@
       case 'send': send(); break;
       case 'soon': toast('Works once the app is connected to MKI’s SharePoint.'); break;
       case 'chip': F.chips[t.dataset.k] = !F.chips[t.dataset.k]; F.more = 9; route(); break;
-      case 'more': F.more += 9; route(); break;
+      case 'more': F.more += 9; document.getElementById('results') ? (document.getElementById('results').innerHTML = resultsHTML()) : route(); break;
+      case 'sug': F[t.dataset.k] = t.dataset.v; F.q = ''; F.more = 9; route(); break;
       case 'addjob': openAddJob(); break;
       case 'savejob':
         var nm2 = document.getElementById('aj-n'), num = document.getElementById('aj-j').value.trim();
@@ -512,11 +526,15 @@
       case 'rem': var pr = person(t.dataset.id); pr.reminder = !pr.reminder; DB.save(); route(); break;
     }
   });
+  document.addEventListener('focusout', function (ev) { if (ev.target.dataset && ev.target.dataset.fil === 'q') setTimeout(function () { var sg = document.getElementById('sugg'); if (sg && !sg.contains(document.activeElement)) sg.classList.remove('open'); }, 150); });
+  document.addEventListener('focusin', function (ev) { if (ev.target.dataset && ev.target.dataset.fil === 'q' && ev.target.value.trim()) { var sg = document.getElementById('sugg'); sg.innerHTML = suggestHTML(ev.target.value); sg.classList.add('open'); } });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') { var sg = document.getElementById('sugg'); if (sg) sg.classList.remove('open'); } if (ev.key === 'Enter' && ev.target.dataset && ev.target.dataset.fil === 'q') { ev.target.blur(); } });
   document.addEventListener('input', function (ev) {
     var t = ev.target;
     if (t.dataset.f) { var d = D(), f = t.dataset.f; if (f.indexOf('.') > -1) { var p = f.split('.'); d[p[0]][p[1]] = t.value; f = p[0]; } else d[f] = t.value; if (d.errors && d.errors[f] && t.value.trim()) { delete d.errors[f]; var c = t.closest('.card'); c.classList.remove('bad'); var em = c.querySelector('.emsg'); if (em) em.remove(); updateBanner(); } saveSoon(); autoGrow(t); }
     if (t.dataset.act === 'jobq') document.getElementById('jlist').innerHTML = jobTray(t.value);
-    if (t.dataset.fil === 'q' || t.dataset.fil === 'jq') { F[t.dataset.fil] = t.value; clearTimeout(window._ft); window._ft = setTimeout(function () { var pos = t.selectionStart; route(); var n = document.querySelector('[data-fil="' + t.dataset.fil + '"]'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }, 250); }
+    if (t.dataset.fil === 'q') { F.q = t.value; F.more = 9; document.getElementById('results').innerHTML = resultsHTML(); var sg = document.getElementById('sugg'); sg.innerHTML = suggestHTML(t.value); sg.classList.toggle('open', !!t.value.trim()); }
+    if (t.dataset.fil === 'jq') { F.jq = t.value; var tmp = document.createElement('div'); tmp.innerHTML = renderJobs(); var nb = tmp.querySelector('#jobsbody'); document.getElementById('jobsbody').innerHTML = nb.innerHTML; }
   });
   document.addEventListener('change', function (ev) {
     var t = ev.target;

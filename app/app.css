@@ -363,8 +363,8 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
   .tbl.cards td.flags-td{padding-top:6px}
   .tbl.cards td.thumbs-td{padding-top:8px}
   .tabs{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:30;background:#fff;border-top:1px solid var(--line);padding:10px 12px calc(env(safe-area-inset-bottom) + 10px);justify-content:space-between}
-  .tabs a{width:80px;display:flex;flex-direction:column;align-items:center;gap:4px;font:500 11px var(--in);color:#A39999;text-decoration:none}
-  .tabs a.on{color:var(--char);font-weight:600}
+  .tabs a{width:80px;display:flex;flex-direction:column;align-items:center;gap:4px;font:500 11px var(--in);color:var(--ink);text-decoration:none}
+  .tabs a.on{color:var(--red);font-weight:600}
   .filters .dd{flex:1}
   .dd select,.osearch input{font-size:16px}
   .back{padding:12px 0;margin:-12px 0}
@@ -373,6 +373,37 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 }
 
 /* ---------- Preview bar ---------- */
-.pv{position:absolute;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 10px);z-index:70;display:flex;gap:2px;background:rgba(30,27,27,.82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-radius:999px;padding:3px;font:600 12px var(--in)}
-.pv a,.pv button{color:rgba(255,255,255,.75);text-decoration:none;padding:6px 10px;border-radius:999px}
+.pv{display:flex;align-items:center;justify-content:center;gap:2px;background:#000;padding:calc(env(safe-area-inset-top) + 6px) 12px 6px;font:600 12px var(--in);position:relative;z-index:70}
+.pv .pvl{color:rgba(255,255,255,.5);letter-spacing:.08em;font-size:11px;margin-right:8px}
+.pv a{color:rgba(255,255,255,.75);text-decoration:none;padding:6px 12px;border-radius:999px}
 .pv .on{background:#fff;color:var(--char)}
+.dark{min-height:calc(100vh - 40px);min-height:calc(100dvh - 40px)}
+.of{min-height:calc(100vh - 40px);min-height:calc(100dvh - 40px)}
+.side{height:calc(100vh - 40px);height:calc(100dvh - 40px)}
+
+/* Search suggestions */
+.osearch-w{position:relative;flex:1;min-width:220px;display:flex}
+.osearch-w .osearch{flex:1}
+.sugg{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:20;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.14),0 0 0 1px var(--line);padding:6px;flex-direction:column}
+.sugg.open{display:flex}
+.sg{display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:8px;text-align:left;font:500 15px var(--in);min-height:44px}
+.sg:hover,.sg:active{background:var(--soft)}
+.sg span{flex:1;min-width:0}
+.sg em{font:500 12px var(--in);font-style:normal;color:var(--mut)}
+.sg-note{padding:8px 10px 6px;font:13px var(--in);color:var(--mut);border-top:1px solid var(--line);margin-top:4px}
+.sugg .sg:first-child+.sg-note,.sugg .sg-note:first-child{border-top:0;margin-top:0}
+/* Foremen table: fixed columns so nothing shifts when a status changes */
+@media (min-width:1024px){
+  table.fmt{table-layout:fixed}
+  .fmt .c-n{width:190px}.fmt .c-d{width:70px}.fmt .c-w{width:160px}.fmt .c-r{width:150px}
+}
+.fmt th:last-child,.fmt td:last-child{text-align:right}
+.fmt td:last-child .switch{display:inline-block;vertical-align:middle}
+@media (max-width:1023px){
+  .fmt col.hide-m{display:none}
+  .filters.rf{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .filters.rf .osearch-w{grid-column:1/-1;min-width:0}
+  .filters.rf .dd:last-child{grid-column:1/-1}
+  .filters.rf .dd select{width:100%;text-overflow:ellipsis}
+}
+@media (max-width:1023px){.tbl.cards td.hide-m{display:none}}

@@ -419,3 +419,5 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 
 .filters.wk .dd{flex:none}
 .filters.wk .dd select{width:auto}
+
+#results .pager{margin-top:12px}

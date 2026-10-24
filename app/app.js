@@ -376,7 +376,7 @@
   /* Divider with a button or text in the middle (from Dan's design system: Divider, Type=Button / Type=Text) */
   function pager(shown, total) {
     var more = total > shown;
-    return '<div class="pager"><div class="divider">' + '<span class="ln"></span>' + (more ? '<button class="obtn tertiary" data-act="more">Load more' + I('chevron-down', 18) + '</button>' : '<span class="dv-t">' + (total ? 'That’s all ' + total + ' reports' : 'No reports') + '</span>') + '<span class="ln"></span></div>' +
+    return '<div class="pager"><div class="divider">' + '<span class="ln"></span>' + (more ? '<button class="obtn tertiary" data-act="more">Load more</button>' : '<span class="dv-t">' + (total ? 'That’s all ' + total + ' reports' : 'No reports') + '</span>') + '<span class="ln"></span></div>' +
       (more ? '<div class="pg-n">Showing ' + shown + ' of ' + total + ' reports</div>' : '') + '</div>';
   }
   function resultsHTML() {

@@ -36,7 +36,7 @@
   function pill(t, k, sm) { var ic = k === 'ok' ? 'check' : k === 'err' ? 'alert-circle' : k === 'warn' ? 'alert-triangle' : null; return '<span class="pill ' + k + '">' + (ic ? I(ic, sm ? 13 : 14) : '') + esc(t) + '</span>'; }
   function toast(msg) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2600); }
   function go(h) { if (location.hash === h) route(); else location.hash = h; }
-  function closeLayer() { $layer.innerHTML = ''; document.body.style.overflow = ''; }
+  function closeLayer() { $layer.innerHTML = ''; document.body.style.overflow = ''; V = null; }
   function openLayer(html) { $layer.innerHTML = html; document.body.style.overflow = 'hidden'; }
   function isWide() { return window.matchMedia('(min-width:700px)').matches; }
 
@@ -121,7 +121,7 @@
       (e[key] ? emsg(e[key]) : '') + '</section>';
   }
   function photosCard(d) {
-    var tiles = d.photos.map(function (p, i) { return '<div class="tile" style="background-image:url(' + p + ')"><button class="rm" data-act="rmphoto" data-i="' + i + '" aria-label="Remove photo">' + I('x', 14, '#fff') + '</button></div>'; }).join('');
+    var tiles = d.photos.map(function (p, i) { return '<div class="tile" style="background-image:url(' + p + ')"><button class="tile-open" data-act="viewer" data-id="draft" data-i="' + i + '" aria-label="Open photo ' + (i + 1) + '"></button><button class="rm" data-act="rmphoto" data-i="' + i + '" aria-label="Remove photo">' + I('x', 14, '#fff') + '</button></div>'; }).join('');
     return '<section class="card" id="q-photos"><div class="ph-h">' + qLabel(9, 'PHOTOS') + '<span class="help" style="font-weight:500">' + d.photos.length + ' of ' + MAXP + ' · optional</span></div>' +
       '<div class="grid">' + tiles + (d.photos.length < MAXP ? '<label class="addt">' + I('camera', 24) + 'Add<input type="file" accept="image/*" multiple class="sr" data-act="photos"></label>' : '') + '</div></section>';
   }
@@ -312,6 +312,65 @@
     openLayer('<div class="dim" data-act="close"></div><div class="tray sheet narrow" data-tt="' + TT.k + '" role="dialog" aria-modal="true" aria-label="' + (TT.k === 'start' ? 'Start time' : 'Finish time') + '">' + inner + '</div>');
   }
 
+  /* ---------------- photo viewer: swipe, pinch or double-tap to zoom ---------------- */
+  var V = null;
+  function openViewer(id, i) {
+    var pics, n;
+    if (id === 'draft') { pics = D().photos; n = pics.length; }
+    else { var r = S().reports.filter(function (x) { return x.id === id; })[0]; if (!r) return; pics = r.photoData || []; n = r.photos; }
+    V = { pics: pics, n: n, i: +i || 0, s: 1, x: 0, y: 0 };
+    var thumbs = ''; for (var k = 0; k < n; k++) thumbs += '<button class="vth" data-act="vgo" data-i="' + k + '" aria-label="Photo ' + (k + 1) + '"' + (pics[k] ? ' style="background-image:url(' + pics[k] + ')"' : '') + '>' + (pics[k] ? '' : I('image', 14, '#fff')) + '</button>';
+    openLayer('<div class="viewer" role="dialog" aria-modal="true" aria-label="Photos"><div class="vbar"><span class="vcount" id="vcount"></span><button class="vbtn" data-act="close" aria-label="Close">' + I('x', 24, '#fff') + '</button></div>' +
+      '<div class="vstage" id="vstage"><div class="vimg" id="vimg"></div>' + (n > 1 ? '<button class="vnav prev" data-act="vprev" aria-label="Previous photo">' + I('chevron-left', 28, '#fff') + '</button><button class="vnav next" data-act="vnext" aria-label="Next photo">' + I('chevron-right', 28, '#fff') + '</button>' : '') + '</div>' +
+      '<div class="vhint">Pinch or double-tap to zoom</div>' + (n > 1 ? '<div class="vthumbs" id="vthumbs">' + thumbs + '</div>' : '') + '</div>');
+    vShow(); vBind();
+  }
+  function vApply(anim) { var el = document.getElementById('vimg'); if (!el) return; el.style.transition = anim ? 'transform .2s ease' : 'none'; el.style.transform = 'translate(' + V.x + 'px,' + V.y + 'px) scale(' + V.s + ')'; }
+  function vShow() {
+    var el = document.getElementById('vimg'), p = V.pics[V.i];
+    V.s = 1; V.x = 0; V.y = 0; vApply(false);
+    el.innerHTML = p ? '<img src="' + p + '" alt="Photo ' + (V.i + 1) + '" draggable="false">' : '<div class="vph">' + I('image', 56, '#fff') + '<span>Sample photo</span></div>';
+    document.getElementById('vcount').textContent = (V.i + 1) + ' of ' + V.n;
+    var th = document.querySelectorAll('.vth'); for (var k = 0; k < th.length; k++) th[k].classList.toggle('on', k === V.i);
+    var cur = th[V.i]; if (cur) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
+  function vGo(k) { if (!V) return; V.i = (k + V.n) % V.n; vShow(); }
+  function vClamp() { var st = document.getElementById('vstage').getBoundingClientRect(), mx = st.width * (V.s - 1) / 2, my = st.height * (V.s - 1) / 2; V.x = Math.max(-mx, Math.min(mx, V.x)); V.y = Math.max(-my, Math.min(my, V.y)); }
+  function vZoomAt(cx, cy, to) {
+    var st = document.getElementById('vstage').getBoundingClientRect(), ox = cx - (st.left + st.width / 2), oy = cy - (st.top + st.height / 2);
+    var k = to / V.s; V.x = ox - (ox - V.x) * k; V.y = oy - (oy - V.y) * k; V.s = to; if (V.s <= 1.01) { V.s = 1; V.x = 0; V.y = 0; } vClamp(); vApply(true);
+  }
+  function vBind() {
+    var st = document.getElementById('vstage'), t0 = null, last = 0, pinch = null, moved = false;
+    st.addEventListener('touchstart', function (e) {
+      if (e.target.closest('.vnav')) return;
+      if (e.touches.length === 2) { var a = e.touches[0], b = e.touches[1]; pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), s: V.s, cx: (a.clientX + b.clientX) / 2, cy: (a.clientY + b.clientY) / 2 }; t0 = null; return; }
+      var t = e.touches[0]; t0 = { x: t.clientX, y: t.clientY, vx: V.x, vy: V.y, time: Date.now() }; moved = false;
+    }, { passive: true });
+    st.addEventListener('touchmove', function (e) {
+      e.preventDefault();
+      if (pinch && e.touches.length === 2) { var a = e.touches[0], b = e.touches[1], d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); var ns = Math.max(1, Math.min(5, pinch.s * d / pinch.d)); vZoomAt(pinch.cx, pinch.cy, ns); document.getElementById('vimg').style.transition = 'none'; return; }
+      if (!t0) return; var t = e.touches[0], dx = t.clientX - t0.x, dy = t.clientY - t0.y; if (Math.abs(dx) > 6 || Math.abs(dy) > 6) moved = true;
+      if (V.s > 1) { V.x = t0.vx + dx; V.y = t0.vy + dy; vClamp(); vApply(false); }
+      else { V.x = dx; vApply(false); }
+    }, { passive: false });
+    st.addEventListener('touchend', function (e) {
+      vTouchAt = Date.now();
+      if (pinch) { if (e.touches.length < 2) pinch = null; return; }
+      if (!t0) return; var t = e.changedTouches[0], dx = t.clientX - t0.x;
+      if (V.s === 1 && moved) { if (dx < -50 && V.n > 1) vGo(V.i + 1); else if (dx > 50 && V.n > 1) vGo(V.i - 1); else { V.x = 0; vApply(true); } t0 = null; return; }
+      if (!moved) { var now = Date.now(); if (now - last < 300) { vZoomAt(t.clientX, t.clientY, V.s > 1 ? 1 : 2.5); last = 0; } else last = now; }
+      t0 = null;
+    });
+    // mouse: click to zoom in or out, drag to move when zoomed
+    st.addEventListener('mousedown', function (e) { if (e.target.closest('.vnav') || Date.now() - vTouchAt < 800) return; vDrag = { x: e.clientX, y: e.clientY, vx: V.x, vy: V.y, moved: false }; });
+    st.addEventListener('wheel', function (e) { e.preventDefault(); vZoomAt(e.clientX, e.clientY, Math.max(1, Math.min(5, V.s * (e.deltaY < 0 ? 1.15 : 0.87)))); }, { passive: false });
+  }
+  var vDrag = null, vTouchAt = 0;
+  window.addEventListener('mousemove', function (e) { if (!vDrag || !V) return; var dx = e.clientX - vDrag.x, dy = e.clientY - vDrag.y; if (Math.abs(dx) + Math.abs(dy) > 4) vDrag.moved = true; if (V.s > 1 && vDrag.moved) { V.x = vDrag.vx + dx; V.y = vDrag.vy + dy; vClamp(); vApply(false); } });
+  window.addEventListener('mouseup', function (e) { if (!vDrag || !V) return; if (!vDrag.moved && e.target.closest && e.target.closest('#vstage') && !e.target.closest('.vnav')) vZoomAt(e.clientX, e.clientY, V.s > 1 ? 1 : 2.5); vDrag = null; });
+  document.addEventListener('keydown', function (e) { if (!V || !document.querySelector('.viewer')) return; if (e.key === 'ArrowRight') vGo(V.i + 1); if (e.key === 'ArrowLeft') vGo(V.i - 1); if (e.key === 'Escape') { closeLayer(); V = null; } });
+
   /* ---------------- office shell ---------------- */
   var NAV = [['today', 'Today', 'home', '#/office'], ['reports', 'All reports', 'list', '#/office/reports'], ['jobs', 'Jobs', 'briefcase', '#/office/jobs'], ['foremen', 'Foremen', 'user', '#/office/foremen']];
   function office(active, fn) {
@@ -407,7 +466,11 @@
     var p = person(r.person), x = dur(r.start, r.finish);
     function blk(l, body, st) { return '<div class="blk"><div class="l">' + l + '</div>' + (st ? '<div>' + st + '</div>' : '') + (body ? '<p>' + esc(body) + '</p>' : '') + '</div>'; }
     var pics = r.photoData && r.photoData.length ? r.photoData : null;
-    function ph(i, cls) { return pics && pics[i] ? '<div class="' + cls + '" style="background:url(' + pics[i] + ') center/cover"></div>' : '<div class="' + cls + '">' + I('image', cls === 'big' ? 32 : 24, '#fff') + '</div>'; }
+    function ph(i, cls) {
+      var more = i === 2 && r.photos > 3 ? '<span class="more">+' + (r.photos - 3) + '</span>' : '';
+      var inner = pics && pics[i] ? '' : I('image', cls === 'big' ? 32 : 24, '#fff');
+      return '<button class="ptile ' + cls + '" data-act="viewer" data-id="' + r.id + '" data-i="' + i + '" aria-label="Open photo ' + (i + 1) + ' of ' + r.photos + '"' + (pics && pics[i] ? ' style="background:url(' + pics[i] + ') center/cover"' : '') + '>' + inner + more + '</button>';
+    }
     return '<a class="back" href="#/office/reports">' + I('chevron-left', 18) + 'All reports</a>' +
       '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + sentText(r) + '</p></div><div class="filters"><button class="obtn tertiary" data-act="soon">' + I('folder', 18) + 'Open job folder</button><button class="obtn secondary" data-act="soon">' + I('file-text', 18) + 'Download PDF</button></div></div>' +
       '<div class="dbody"><div class="dl-col"><div class="facts"><div class="fact"><div class="l">CREW ON SITE</div><div class="v">' + r.crew + '</div><div class="s">Foreman included</div></div>' +
@@ -496,7 +559,11 @@
       case 'signin': S().me = 'medwards'; DB.save(); go('#/'); break;
       case 'signout': S().me = null; DB.save(); go('#/signin'); break;
       case 'done': go('#/'); break;
-      case 'close': closeLayer(); break;
+      case 'close': closeLayer(); V = null; break;
+      case 'viewer': openViewer(t.dataset.id, t.dataset.i); break;
+      case 'vprev': vGo(V.i - 1); break;
+      case 'vnext': vGo(V.i + 1); break;
+      case 'vgo': vGo(+t.dataset.i); break;
       case 'jobs': openJobs(); break;
       case 'pickjob': d = D(); var j = job(t.dataset.num); if (!d.job || d.job.num !== j.num) { d.weather = null; } d.job = { num: j.num, name: j.name }; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
       case 'reqjob': var q = document.querySelector('[data-act=jobq]'); openReqJob(q ? q.value : ''); break;

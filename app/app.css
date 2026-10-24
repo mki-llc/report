@@ -421,3 +421,29 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 .filters.wk .dd select{width:auto}
 
 #results .pager{margin-top:12px}
+
+/* Photo tiles open the viewer */
+.ptile{display:flex;align-items:center;justify-content:center;position:relative;border-radius:8px;background-color:var(--ph);overflow:hidden;width:100%;cursor:zoom-in}
+.pbox .big.ptile{height:240px}
+.pbox .two .ptile{height:130px}
+.ptile .more{position:absolute;inset:0;background:rgba(30,27,27,.55);color:#fff;font:800 28px var(--bc);display:flex;align-items:center;justify-content:center}
+.tile .tile-open{position:absolute;inset:0;border-radius:inherit;cursor:zoom-in}
+.tile .rm{z-index:1}
+/* Viewer */
+.viewer{position:fixed;inset:0;z-index:90;background:#000;display:flex;flex-direction:column;animation:fade .15s;color:#fff}
+.vbar{display:flex;justify-content:space-between;align-items:center;padding:calc(env(safe-area-inset-top) + 8px) 8px 8px 20px;flex:none}
+.vcount{font:600 15px var(--in)}
+.vbtn{width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:999px}
+.vstage{flex:1;position:relative;overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center;cursor:zoom-in;min-height:0}
+.vimg{width:100%;height:100%;display:flex;align-items:center;justify-content:center;will-change:transform;transform-origin:center}
+.vimg img{max-width:100%;max-height:100%;object-fit:contain;user-select:none;-webkit-user-select:none;pointer-events:none}
+.vph{width:min(80vw,520px);aspect-ratio:4/3;background:#2a2626;border-radius:12px;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;font:500 14px var(--in);color:rgba(255,255,255,.6)}
+.vnav{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;border-radius:999px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center}
+.vnav.prev{left:12px}.vnav.next{right:12px}
+.vhint{text-align:center;font:13px var(--in);color:rgba(255,255,255,.55);padding:8px;flex:none}
+.vthumbs{display:flex;gap:8px;overflow-x:auto;padding:4px 16px calc(env(safe-area-inset-bottom) + 14px);flex:none;scrollbar-width:none}
+.vthumbs::-webkit-scrollbar{display:none}
+.vth{flex:none;width:56px;height:56px;border-radius:8px;background:#2a2626 center/cover no-repeat;opacity:.55;display:flex;align-items:center;justify-content:center}
+.vth.on{opacity:1;box-shadow:0 0 0 2px #fff}
+@media (pointer:coarse){.vnav{display:none}}
+@media (max-width:1023px){.pbox .big.ptile{height:180px}}

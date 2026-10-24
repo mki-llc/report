@@ -447,3 +447,21 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 .vth.on{opacity:1;box-shadow:0 0 0 2px #fff}
 @media (pointer:coarse){.vnav{display:none}}
 @media (max-width:1023px){.pbox .big.ptile{height:180px}}
+
+/* Row menu and undo toast */
+.menu-w{position:relative;display:inline-block}
+.mbtn{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--mut)}
+.mbtn:hover{background:var(--soft)}
+.menu{position:absolute;right:0;top:calc(100% + 4px);z-index:25;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.14),0 0 0 1px var(--line);padding:6px;min-width:200px}
+.menu button{display:flex;align-items:center;gap:10px;width:100%;padding:11px 12px;border-radius:8px;font:500 15px var(--in);color:var(--ink);text-align:left;white-space:nowrap;min-height:44px}
+.menu button:hover{background:var(--soft)}
+.toast{display:flex;align-items:center;gap:16px}
+.tundo{color:#fff;font:700 14px var(--in);text-decoration:underline;text-underline-offset:3px;padding:6px 4px;flex:none}
+
+/* QA pass 2 */
+.select .v,.jrow b,.h1,.tbl td.job,.fm .t b,.fm .t span,.sent .sum b,.reqrow b,.blk p,.fact .v{overflow-wrap:anywhere}
+.blk p{white-space:pre-wrap}
+@media (min-width:1024px){.of{background:linear-gradient(90deg,#3A1414 0 248px,var(--bg) 248px)}}
+.tbl tr.click:focus-visible{outline:2px solid var(--char);outline-offset:-2px}
+.modal .emsg{margin-top:-2px}
+.fld input.err{border:1.5px solid var(--err)}

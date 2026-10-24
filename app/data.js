@@ -68,11 +68,13 @@
   ];
 
   function load() {
-    try { var s = JSON.parse(localStorage.getItem(KEY)); if (s && s.v === 1) return s; } catch (e) {}
-    return { v: 1, jobs: JOBS, people: PEOPLE, reports: REPORTS, requests: REQUESTS, me: null, draft: null, recent: {} };
+    var base = { v: 1, jobs: JOBS, people: PEOPLE, reports: REPORTS, requests: REQUESTS, me: null, draft: null, recent: {} };
+    try { var s = JSON.parse(localStorage.getItem(KEY)); if (s && s.v === 1) { for (var k in base) if (!(k in s) || (Array.isArray(base[k]) && !Array.isArray(s[k]))) s[k] = base[k]; return s; } } catch (e) {}
+    return base;
   }
   var state = load();
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  // Returns true when saved. False means the phone's storage for this page is full.
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(window.DB ? window.DB.state : state)); return true; } catch (e) { return false; } }
   function reset() { try { localStorage.removeItem(KEY); } catch (e) {} state = load(); window.DB.state = state; }
 
   window.DB = { state: state, save: save, reset: reset, dayKey: dayKey };

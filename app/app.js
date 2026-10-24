@@ -34,17 +34,31 @@
   function sentText(r) { var p = r.sentAt.split(':'), h = +p[0], ap = h >= 12 ? 'PM' : 'AM'; return (h % 12 || 12) + ':' + p[1] + ' ' + ap; }
   function flagsOf(r) { var f = []; if (r.mat.yes) f.push(['Materials', 'warn']); if (r.delay.yes) f.push(['Delay', 'warn']); if (r.safety.yes) f.push(['Safety', 'err']); if (!f.length) f.push(['All clear', 'ok']); return f; }
   function pill(t, k, sm) { var ic = k === 'ok' ? 'check' : k === 'err' ? 'alert-circle' : k === 'warn' ? 'alert-triangle' : null; return '<span class="pill ' + k + '">' + (ic ? I(ic, sm ? 13 : 14) : '') + esc(t) + '</span>'; }
-  function toast(msg) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 2600); }
+  function toast(msg, undo) {
+    var old = document.querySelector('.toast'); if (old) old.remove();
+    var t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status');
+    var sp = document.createElement('span'); sp.textContent = msg; t.appendChild(sp);
+    if (undo) { var b = document.createElement('button'); b.className = 'tundo'; b.textContent = 'Undo'; b.onclick = function () { undo(); t.remove(); }; t.appendChild(b); }
+    document.body.appendChild(t); setTimeout(function () { t.remove(); }, undo ? 6000 : 2600);
+  }
   function go(h) { if (location.hash === h) route(); else location.hash = h; }
   function closeLayer() { $layer.innerHTML = ''; document.body.style.overflow = ''; V = null; }
-  function openLayer(html) { $layer.innerHTML = html; document.body.style.overflow = 'hidden'; }
+  var layerHist = false;
+  function openLayer(html) {
+    var was = !!$layer.firstChild; $layer.innerHTML = html; document.body.style.overflow = 'hidden';
+    // Browser Back closes the open tray or dialog instead of leaving the page.
+    if (!was && !layerHist) { history.pushState({ layer: 1 }, ''); layerHist = true; }
+    var f = $layer.querySelector('input,textarea,select,button:not([data-act=close]):not(.dim)'); if (f && !('ontouchstart' in window)) setTimeout(function () { if ($layer.contains(f) && !$layer.contains(document.activeElement)) f.focus({ preventScroll: true }); }, 30);
+  }
   function isWide() { return window.matchMedia('(min-width:700px)').matches; }
 
   var MAXP = 30; // photos per report
   /* ---------------- draft ---------------- */
   function newDraft() { return { date: todayKey(), job: null, start: null, finish: null, crew: 0, work: '', mat: { yes: null, text: '' }, delay: { yes: null, text: '' }, safety: { yes: null, text: '' }, plan: '', photos: [], weather: null, errors: null }; }
-  function D() { var s = S(); if (!s.draft || s.draft.date !== todayKey()) { s.draft = newDraft(); } return s.draft; }
-  var saveT; function saveSoon() { clearTimeout(saveT); saveT = setTimeout(DB.save, 300); }
+  function hasContent(d) { return !!(d.job || d.start || d.finish || d.crew || d.work || d.plan || d.photos.length || d.mat.yes !== null || d.delay.yes !== null || d.safety.yes !== null); }
+  // A report started yesterday (night shift, or past midnight) stays as yesterday's report instead of being wiped.
+  function D() { var s = S(), t = todayKey(); if (!s.draft || (s.draft.date !== t && !(hasContent(s.draft) && (dObj(t) - dObj(s.draft.date)) / 864e5 <= 1))) { s.draft = newDraft(); } return s.draft; }
+  var saveT, warned = false; function saveSoon() { clearTimeout(saveT); saveT = setTimeout(function () { if (!DB.save() && !warned) { warned = true; toast('This phone is low on space. Your report is kept while the app is open.'); } }, 300); }
 
   /* ---------------- router ---------------- */
   function route() {
@@ -68,6 +82,12 @@
     return office('today', renderToday);
   }
   window.addEventListener('hashchange', route);
+  window.addEventListener('popstate', function () { if (layerHist) { layerHist = false; if ($layer.firstChild) { closeLayer(); } } });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && $layer.firstChild && !document.querySelector('.viewer')) { closeLayer(); return; }
+    if (e.key === 'Tab' && $layer.firstChild) { var f = [].slice.call($layer.querySelectorAll('button:not([disabled]),input,select,textarea,[tabindex="0"]')).filter(function (x) { return x.offsetParent !== null; }); if (!f.length) return; var a = f[0], z = f[f.length - 1]; if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); } else if (!$layer.contains(document.activeElement)) { e.preventDefault(); a.focus(); } }
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('tr[data-go]')) go(e.target.dataset.go);
+  });
 
   function previewBar(active) {
     return '<nav class="pv" aria-label="Preview"><span class="pvl">PREVIEW</span><a href="#/" class="' + (active === 'f' ? 'on' : '') + '">Foreman</a><a href="#/office" class="' + (active === 'o' ? 'on' : '') + '">Office</a></nav>';
@@ -116,7 +136,7 @@
   function ynCard(n, key, title, d, e, detail) {
     var v = d[key];
     return '<section class="card' + (e[key] ? ' bad' : '') + '" id="q-' + key + '">' + qLabel(n, title) +
-      '<div class="yn" role="radiogroup"><button class="' + (v.yes === false ? 'on' : '') + '" data-act="yn" data-k="' + key + '" data-v="0">' + (v.yes === false ? I('check', 16) : '') + 'NO</button><button class="' + (v.yes === true ? 'on' : '') + '" data-act="yn" data-k="' + key + '" data-v="1">' + (v.yes === true ? I('check', 16) : '') + 'YES</button></div>' +
+      '<div class="yn" role="radiogroup" aria-label="' + title + '"><button class="' + (v.yes === false ? 'on' : '') + '" data-act="yn" role="radio" aria-checked="' + (v.yes === false) + '" data-k="' + key + '" data-v="0">' + (v.yes === false ? I('check', 16) : '') + 'NO</button><button class="' + (v.yes === true ? 'on' : '') + '" data-act="yn" role="radio" aria-checked="' + (v.yes === true) + '" data-k="' + key + '" data-v="1">' + (v.yes === true ? I('check', 16) : '') + 'YES</button></div>' +
       (v.yes ? '<div class="dl">' + detail + '</div><textarea class="sm" data-f="' + key + '.text" placeholder="Type or tap the mic to talk" rows="3">' + esc(v.text) + '</textarea>' : '') +
       (e[key] ? emsg(e[key]) : '') + '</section>';
   }
@@ -159,7 +179,7 @@
     var n = document.getElementById(id); if (n) { var dy = n.getBoundingClientRect().top - top; if (Math.abs(dy) > 0.5) window.scrollBy(0, dy); }
   }
   function renderReport() {
-    var d = D(), e = d.errors || {}, k = todayKey(), me = person(S().me);
+    var d = D(), e = d.errors || {}, k = d.date, me = person(S().me);
     var nErr = Object.keys(e).length;
     var wx = d.job ? (d.weather ? esc(d.weather) + ' at the job site · added for you' : 'Getting the weather for the job site…') : 'Weather is added for you once you pick a job';
     var wide = isWide();
@@ -179,6 +199,7 @@
     if (!wide) body = body.replace('<div class="cols"><div class="col">' + work + plan + '</div><div class="col">' + mat + delay + safety + '</div></div>', work + mat + delay + safety + plan);
     $app.innerHTML = previewBar('f') + head + '<main class="ql">' + body + '</main>';
     if (d.job && !d.weather) getWeather();
+    [].forEach.call(document.querySelectorAll('textarea'), autoGrow);
   }
 
   /* weather from the National Weather Service (free). Preview uses the Charlotte airport station. */
@@ -217,13 +238,17 @@
     }
     var now = new Date(), s = S();
     var id = 'r' + now.getTime();
-    var rep = { id: id, date: todayKey(), person: s.me, job: d.job.num || ('new:' + d.job.name), jobName: d.job.num ? null : d.job.name, sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
-      start: d.start, finish: d.finish, crew: d.crew, weather: d.weather || '', work: d.work.trim(), mat: d.mat, delay: d.delay, safety: d.safety, plan: d.plan.trim(), photos: d.photos.length, photoData: d.photos.slice(0, MAXP) };
+    var rep = { id: id, date: d.date, person: s.me, job: d.job.num || ('new:' + d.job.name), jobName: d.job.num ? null : d.job.name, sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
+      start: d.start, finish: d.finish, crew: d.crew, weather: d.weather || '', work: d.work.trim(), mat: { yes: d.mat.yes, text: d.mat.yes ? d.mat.text.trim() : '' }, delay: { yes: d.delay.yes, text: d.delay.yes ? d.delay.text.trim() : '' }, safety: { yes: d.safety.yes, text: d.safety.yes ? d.safety.text.trim() : '' }, plan: d.plan.trim(), photos: d.photos.length, photoData: d.photos.slice(0, MAXP) };
     if (d.job.requested) s.requests.push({ id: 'q' + now.getTime(), name: d.job.name, by: s.me, date: todayKey(), note: d.job.addr || '' });
     s.reports.unshift(rep);
     s.recent[s.me] = s.recent[s.me] || {}; s.recent[s.me].hours = { start: d.start, finish: d.finish };
     s.draft = null;
-    try { DB.save(); } catch (err) { rep.photoData = []; DB.save(); }
+    // Keep the newest photos; if storage is full, drop photo copies from older reports first, then this one's.
+    var ok = DB.save();
+    if (!ok) { s.reports.forEach(function (r) { if (r !== rep) r.photoData = []; }); ok = DB.save(); }
+    if (!ok) { rep.photoData = []; ok = DB.save(); }
+    if (!ok) { s.reports.shift(); s.draft = d; toast('This phone is out of space, so the report wasn’t sent. Nothing was lost, try again.'); return; }
     go('#/sent/' + id);
   }
 
@@ -247,14 +272,14 @@
   function jobTray(q) {
     q = (q || '').trim().toLowerCase();
     var act = S().jobs.filter(function (j) { return j.active; }), cur = D().job, rows;
-    function row(j, sub) { return '<button class="jrow' + (cur && cur.num === j.num ? ' on' : '') + '" data-act="pickjob" data-num="' + j.num + '"><b>' + esc(j.name) + '</b>' + (sub ? '<span>' + esc(sub) + '</span>' : '') + '</button>'; }
+    function row(j, sub) { return '<button class="jrow' + (cur && cur.num === j.num ? ' on' : '') + '" data-act="pickjob" data-num="' + esc(j.num) + '"><b>' + esc(j.name) + '</b>' + (sub ? '<span>' + esc(sub) + '</span>' : '') + '</button>'; }
     if (q) {
       var m = act.filter(function (j) { return (j.name + ' ' + j.num).toLowerCase().indexOf(q) > -1; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
       rows = '<div class="sl">Results</div>' + (m.length ? m.map(function (j) { return row(j); }).join('') : '<div class="empty">No job matches “' + esc(q) + '”. You can request it below.</div>');
     } else {
       var rec = recentJobs(), recNums = rec.map(function (x) { return x.j.num; });
       rows = (rec.length ? '<div class="sl">Your recent jobs</div>' + rec.map(function (x) { return row(x.j, x.when); }).join('') : '') +
-        '<div class="sl">All jobs (A–Z)</div>' + act.filter(function (j) { return recNums.indexOf(j.num) < 0; }).sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (j) { return row(j); }).join('');
+        (act.length ? '' : '<div class="empty">No active jobs right now. Request the job below and the office will add it.</div>') + (act.length ? '<div class="sl">All jobs (A–Z)</div>' : '') + act.filter(function (j) { return recNums.indexOf(j.num) < 0; }).sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (j) { return row(j); }).join('');
     }
     return rows + '<button class="reqlink" data-act="reqjob">' + I('plus', 18) + 'Job not listed? Request a new job</button>';
   }
@@ -264,7 +289,7 @@
   }
   function openReqJob(prefill) {
     openLayer('<div class="dim" data-act="close"></div><div class="tray sheet" role="dialog" aria-label="New job"><div class="grab"></div><div class="th"><h2>New job</h2><button class="btn btn-tertiary" data-act="jobs">BACK</button></div>' +
-      '<div class="fld"><label for="nj">Job name</label><input id="nj" value="' + esc(prefill || '') + '" placeholder="e.g. Cornelius Fire Station 4" autocomplete="off"></div>' +
+      '<div class="fld"><label for="nj">Job name</label><input id="nj" maxlength="80" value="' + esc(prefill || '') + '" placeholder="e.g. Cornelius Fire Station 4" autocomplete="off"></div>' +
       '<div class="fld"><label for="na">Address or general contractor (optional)</label><input id="na" placeholder="e.g. 21440 Catawba Ave" autocomplete="off"></div>' +
       '<div class="note">' + I('info', 20) + '<span>The office checks the name so every report for this job lands in the same folder. You can send your report right away.</span></div>' +
       '<button class="btn btn-primary" data-act="usejob">USE THIS JOB</button></div>');
@@ -279,7 +304,7 @@
     if (buf.length <= 2) { h = +buf; m = 0; } else if (buf.length === 3) { h = +buf[0]; m = +buf.slice(1); } else { h = +buf.slice(0, 2); m = +buf.slice(2); }
     if (m > 59 || h > 23) return { ok: false, bad: true };
     var h24, autoPM = false;
-    if (h >= 13) { h24 = h; autoPM = true; } else if (h === 0) { h24 = 0; } else { h24 = ap === 'PM' ? (h === 12 ? 12 : h + 12) : (h === 12 ? 0 : h); }
+    if (h >= 13 || (buf.length === 4 && h === 12)) { h24 = h; autoPM = true; } else if (h === 0) { h24 = 0; } else { h24 = ap === 'PM' ? (h === 12 ? 12 : h + 12) : (h === 12 ? 0 : h); }
     var shown = (h24 % 12 || 12) + ':' + String(m).padStart(2, '0');
     return { ok: true, hm: String(h24).padStart(2, '0') + ':' + String(m).padStart(2, '0'), shown: shown, ap: h24 >= 12 ? 'PM' : 'AM', autoPM: autoPM || h === 0 };
   }
@@ -381,14 +406,14 @@
     $app.innerHTML = previewBar('o') + '<div class="of">' + side + '<main class="main">' + fn() + '</main></div>' + tabs;
   }
   var F = { job: '', who: '', range: '7', flag: '', q: '', chips: {}, more: 9, jobsShow: 'active', jq: '' };
-  function dd(name, val, opts) { return '<label class="dd"><select aria-label="' + esc(opts[0][1]) + '" data-fil="' + name + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 16) + '</label>'; }
-  function jobOpts(all) { return [['', all]].concat(S().jobs.filter(function (j) { return j.active; }).sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (j) { return [j.num, j.name]; })); }
+  function dd(name, val, opts) { return '<label class="dd"><select aria-label="' + esc(opts[0][1]) + '" data-fil="' + name + '">' + opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 16) + '</label>'; }
+  function jobOpts(all) { return [['', all]].concat(S().jobs.filter(function (j) { return j.active || j.num === F.job; }).sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (j) { return [j.num, j.name]; })); }
   function whoOpts(all) { return [['', all]].concat(S().people.map(function (p) { return [p.id, p.name]; })); }
   function thumbs(r) { var n = r.photos, a = ''; for (var i = 0; i < Math.min(n, 3); i++) a += r.photoData && r.photoData[i] ? '<span class="th36" style="background:url(' + r.photoData[i] + ') center/cover"></span>' : '<span class="th36">' + I('image', 14, '#fff') + '</span>'; if (n > 3) a += '<span class="mut" style="font:600 13px var(--in)">+' + (n - 3) + '</span>'; if (!n) a = '<span class="mut">None</span>'; return '<div class="thumbs">' + a + '</div>'; }
   function repRows(list, cols) {
     return list.map(function (r) {
       var p = person(r.person);
-      return '<tr class="click" data-go="#/office/report/' + r.id + '"><td class="date-td">' + shortDate(r.date) + '</td><td class="job">' + esc(jobName(r)) + '</td><td>' + esc(p.short) + '</td>' +
+      return '<tr class="click" tabindex="0" role="link" aria-label="Open report: ' + esc(jobName(r)) + ', ' + shortDate(r.date) + '" data-go="#/office/report/' + r.id + '"><td class="date-td">' + shortDate(r.date) + '</td><td class="job">' + esc(jobName(r)) + '</td><td>' + esc(p.short) + '</td>' +
         (cols === 'crew' ? '<td class="hide-m">' + r.crew + '</td>' : '') +
         '<td class="flags-td"><div class="flags">' + flagsOf(r).map(function (f) { return pill(f[0], f[1]); }).join('') + '</div></td><td class="thumbs-td">' + thumbs(r) + '</td><td class="go">' + I('chevron-right', 18) + '</td></tr>';
     }).join('');
@@ -411,11 +436,11 @@
     var people = expected.slice(); today.forEach(function (r) { if (people.indexOf(person(r.person)) < 0) people.push(person(r.person)); });
     var fms = people.map(function (p) {
       var r = sentIds[p.id], jb = r ? jobName(r) : (p.usualJob && job(p.usualJob) ? job(p.usualJob).name : 'No report yet');
-      return '<button class="fm' + (r ? '' : ' miss') + '"' + (r ? ' data-go="#/office/report/' + r.id + '"' : '') + '><div class="av' + (r ? '' : ' gray') + '">' + p.ini + '</div><div class="t"><b>' + esc(p.short) + '</b><span>' + esc(jb) + '</span></div>' + (r ? pill('Sent ' + sentText(r).replace(' PM', '').replace(' AM', ''), 'ok') : pill('Not sent', 'err')) + '</button>';
+      return '<button class="fm' + (r ? '' : ' miss') + '"' + (r ? ' data-go="#/office/report/' + r.id + '"' : '') + '><div class="av' + (r ? '' : ' gray') + '">' + p.ini + '</div><div class="t"><b>' + esc(p.short) + '</b><span>' + esc(jb) + '</span></div>' + (r ? pill('Sent ' + sentText(r), 'ok') : pill('Not sent', 'err')) + '</button>';
     }).join('');
     return '<div class="toprow"><div><div class="wdl">' + wd(k) + '</div><h1 class="h1">' + md(k) + '</h1></div><div class="filters">' + dd('job', F.job, jobOpts('All jobs')) + dd('who', F.who, whoOpts('All foremen')) + '</div></div>' +
-      '<div class="stats">' + stat('REPORTS TODAY', weekend ? String(today.length) : sentExp + ' / ' + expected.length, weekend ? 'No reports expected on weekends' : missing.length ? missing.map(function (p) { return p.short; }).join(', ') + ' hasn’t sent yet' : 'Everyone has sent') +
-      stat('MISSING TODAY', missing.length, missing.length ? 'Reminder goes out at 5:30 PM' : 'Nobody missing', missing.length ? 'err' : 'ok') +
+      '<div class="stats">' + stat('REPORTS TODAY', weekend ? String(today.length) : sentExp + ' / ' + expected.length, weekend ? 'No reports expected on weekends' : !expected.length ? (today.length + ' sent · no daily reminders on') : missing.length ? missing.map(function (p) { return p.short; }).join(', ') + (missing.length > 1 ? ' haven’t' : ' hasn’t') + ' sent yet' : 'Everyone has sent') +
+      stat('MISSING TODAY', missing.length, missing.length ? (new Date().getHours() * 60 + new Date().getMinutes() >= 1050 ? 'Reminder sent at 5:30 PM' : 'Reminder goes out at 5:30 PM') : 'Nobody missing', missing.length ? 'err' : 'ok') +
       stat('NEEDS MATERIALS', mats.length, mats.length ? mats.map(jobName).join(', ') : 'Nothing requested today', mats.length ? 'warn' : 'ok') +
       stat('SAFETY ISSUES', safetyWk.length, safetyWk.length ? 'This week' : 'None this week', safetyWk.length ? 'err' : 'ok') + '</div>' +
       '<div class="sec-t">Foremen today</div>' + (fms ? '<div class="fms">' + fms + '</div>' : '<div class="blk"><p class="mut">' + (weekend ? 'It’s the weekend, so nobody is expected to send a report today.' : 'Nobody has daily reminders on.') + '</p></div>') +
@@ -496,8 +521,8 @@
     var rows = list.map(function (j) {
       var rs = s.reports.filter(function (r) { return r.job === j.num; }).sort(function (a, b) { return b.date.localeCompare(a.date); });
       var fm = rs[0] ? person(rs[0].person).short : (j.foreman ? person(j.foreman).short : '—');
-      return '<tr><td class="job"><span class="num">' + j.num + '</span>' + esc(j.name) + '</td><td>' + esc(fm) + '</td><td class="hide-m">' + (rs[0] ? relDate(rs[0].date) : 'No reports yet') + '</td><td class="hide-m">' + rs.length + '</td><td>' + (j.active ? pill('Active', 'ok') : '<span class="pill neutral">Finished</span>') + '</td>' +
-        '<td class="go"><button data-act="jobstate" data-num="' + j.num + '" title="' + (j.active ? 'Mark finished' : 'Reopen') + '" aria-label="' + (j.active ? 'Mark finished' : 'Reopen') + '">' + I('more-horizontal', 18) + '</button></td></tr>';
+      return '<tr><td class="job"><span class="num">' + esc(j.num) + '</span>' + esc(j.name) + '</td><td>' + esc(fm) + '</td><td class="hide-m">' + (rs[0] ? relDate(rs[0].date) : 'No reports yet') + '</td><td class="hide-m">' + rs.length + '</td><td>' + (j.active ? pill('Active', 'ok') : '<span class="pill neutral">Finished</span>') + '</td>' +
+        '<td class="go"><div class="menu-w"><button class="mbtn" data-act="jobmenu" data-num="' + esc(j.num) + '" aria-haspopup="menu" aria-label="More for ' + esc(j.name) + '">' + I('more-horizontal', 18) + '</button></div></td></tr>';
     }).join('');
     return '<div class="toprow"><h1 class="h1">Jobs</h1><button class="obtn primary" data-act="addjob">' + I('plus', 18, '#fff') + 'Add job</button></div>' +
       (s.requests.length ? '<div class="reqc"><div class="top">' + pill(s.requests.length + (s.requests.length === 1 ? ' new job request' : ' new job requests'), 'warn') + 'Foremen can ask for a job that isn’t on the list. Approve it, or merge it into a job that already exists.</div>' + reqs + '</div>' : '') +
@@ -508,7 +533,7 @@
   function nextNum() { var yy = String(new Date().getFullYear()).slice(2), max = 3000; S().jobs.forEach(function (j) { var p = j.num.split('-'); if (p[0] === yy) max = Math.max(max, +p[1]); }); return yy + '-' + (max + 1); }
   function openAddJob(prefill, reqId) {
     openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Add a job"><div class="toprow"><h2>ADD A JOB</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
-      '<div class="fld"><label for="aj-n">Job name</label><input id="aj-n" value="' + esc(prefill || '') + '" autocomplete="off"></div>' +
+      '<div class="fld"><label for="aj-n">Job name</label><input id="aj-n" maxlength="80" value="' + esc(prefill || '') + '" autocomplete="off"></div>' +
       '<div class="fld"><label for="aj-a">Address<span class="opt">Optional</span></label><input id="aj-a" placeholder="Street, city" autocomplete="off"></div>' +
       '<div class="fld"><label for="aj-f">Main foreman<span class="opt">Optional</span></label><label class="dd" style="display:flex"><select id="aj-f" style="width:100%;padding:15px 38px 15px 14px;font-size:16px;border-radius:12px"><option value="">Pick a foreman</option>' + S().people.map(function (p) { return '<option value="' + p.id + '">' + esc(p.name) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label></div>' +
       '<div class="fld"><label for="aj-j">Job number</label><input id="aj-j" value="' + nextNum() + '" autocomplete="off"></div>' +
@@ -520,7 +545,7 @@
     var r = S().requests.filter(function (x) { return x.id === reqId; })[0];
     openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Merge"><div class="toprow"><h2>MERGE INTO A JOB</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
       '<p style="margin:0;font:15px/1.45 var(--in)">Reports sent under “' + esc(r.name) + '” will move to the job you pick.</p>' +
-      '<label class="dd" style="display:flex"><select id="mg" style="width:100%;padding:15px 38px 15px 14px;font-size:16px;border-radius:12px">' + jobOpts('Pick a job').map(function (o) { return '<option value="' + o[0] + '">' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label>' +
+      '<label class="dd" style="display:flex"><select id="mg" style="width:100%;padding:15px 38px 15px 14px;font-size:16px;border-radius:12px">' + jobOpts('Pick a job').map(function (o) { return '<option value="' + esc(o[0]) + '">' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label>' +
       '<div class="acts"><button class="obtn tertiary" data-act="close">Cancel</button><button class="obtn primary" data-act="domerge" data-id="' + reqId + '">Merge</button></div></div>');
   }
 
@@ -542,7 +567,7 @@
       var uj = p.usualJob && job(p.usualJob) ? job(p.usualJob).name : (p.role === 'Field Supervisor' ? 'New construction only' : '—');
       return '<tr><td class="job"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="av sm">' + p.ini + '</span>' + esc(p.short) + '</div></td><td class="hide-m">' + esc(uj) + '</td>' + dots.replace(/<td class="wkcell">/g, '<td class="wkcell hide-m">') + '<td>' + st + '</td><td><button class="switch' + (p.reminder ? ' on' : '') + '" data-act="rem" data-id="' + p.id + '" role="switch" aria-checked="' + p.reminder + '" aria-label="Daily reminder for ' + esc(p.short) + '"></button></td></tr>';
     }).join('');
-    var range = dObj(days[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' to ' + fri.getDate();
+    var mon0 = dObj(days[0]), range = mon0.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' to ' + (fri.getMonth() === mon0.getMonth() ? fri.getDate() : fri.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
     return '<div class="toprow"><h1 class="h1">Foremen</h1><button class="obtn tertiary" data-act="soon">' + I('plus', 18) + 'Add foreman</button></div>' +
       '<div class="filters wk">' + dd('week', 'this', [['this', 'This week · ' + range]]) + '<span class="mut" style="font:14px var(--in)">Who sent a report each workday</span></div>' +
       '<div class="tbl"><div style="overflow-x:auto"><table class="fmt"><colgroup><col class="c-n"><col class="c-j hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-w"><col class="c-r"></colgroup><thead><tr><th>FOREMAN</th><th class="hide-m">USUAL JOB</th><th class="hide-m">MON</th><th class="hide-m">TUE</th><th class="hide-m">WED</th><th class="hide-m">THU</th><th class="hide-m">FRI</th><th>THIS WEEK</th><th><span class="hide-m">DAILY REMINDER</span><span class="show-m" title="Daily reminder">' + I('bell', 16) + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
@@ -551,6 +576,7 @@
 
   /* ---------------- events ---------------- */
   document.addEventListener('click', function (ev) {
+    if (!ev.target.closest('.menu-w')) { var om = document.querySelector('.menu'); if (om) om.remove(); }
     var t = ev.target.closest('[data-act],[data-go]'); if (!t) return;
     if (t.dataset.go && !t.dataset.act) { if (ev.target.closest('button') && ev.target.closest('button') !== t) return; go(t.dataset.go); return; }
     var a = t.dataset.act, d;
@@ -574,12 +600,11 @@
         var key = t.dataset.k;
         if (TT.fresh && /\d/.test(key)) { TT.buf = ''; } TT.fresh = false;
         if (key === 'clear') TT.buf = ''; else if (key === 'del') TT.buf = TT.buf.slice(0, -1); else if (TT.buf.length < 4) { if (!(TT.buf === '' && key === '0' && false)) TT.buf += key; }
-        var p2 = parseT(TT.buf, TT.ap); if (p2.ok && p2.autoPM) TT.ap = p2.ap;
         drawTime(); break;
       case 'tdone': var p3 = parseT(TT.buf, TT.ap); if (!p3.ok) return; d = D(); d[TT.k] = p3.hm; if (d.errors && d.start && d.finish) delete d.errors.hours; saveSoon(); var nextK = TT.k === 'start' && !d.finish ? 'finish' : null; closeLayer(); refresh('q-hours'); if (nextK) openTime(nextK); break;
       case 'same': d = D(); var rec = (S().recent[S().me] || {}).hours; if (!rec) { var last = S().reports.filter(function (r) { return r.person === S().me; })[0]; rec = last ? { start: last.start, finish: last.finish } : { start: '07:00', finish: '15:30' }; } d.start = rec.start; d.finish = rec.finish; if (d.errors) delete d.errors.hours; saveSoon(); refresh('q-hours'); toast('Filled in ' + fmt12(rec.start) + ' to ' + fmt12(rec.finish)); break;
       case 'crew': d = D(); d.crew = Math.max(0, Math.min(99, d.crew + (+t.dataset.d))); var n = document.getElementById('crewn'); n.textContent = d.crew; n.classList.toggle('zero', !d.crew); if (d.errors && d.crew && d.errors.crew) { delete d.errors.crew; refresh('q-crew'); } saveSoon(); break;
-      case 'yn': if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); d = D(); d[t.dataset.k].yes = t.dataset.v === '1'; if (!d[t.dataset.k].yes) d[t.dataset.k].text = ''; if (d.errors) delete d.errors[t.dataset.k]; saveSoon(); refresh('q-' + t.dataset.k); break;
+      case 'yn': if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); d = D(); d[t.dataset.k].yes = t.dataset.v === '1'; if (d.errors) delete d.errors[t.dataset.k]; saveSoon(); refresh('q-' + t.dataset.k); break;
       case 'rmphoto': d = D(); d.photos.splice(+t.dataset.i, 1); saveSoon(); refresh('q-photos'); break;
       case 'send': send(); break;
       case 'soon': toast('Works once the app is connected to MKI’s SharePoint.'); break;
@@ -588,15 +613,20 @@
       case 'sug': F[t.dataset.k] = t.dataset.v; F.q = ''; F.more = 9; route(); break;
       case 'addjob': openAddJob(); break;
       case 'savejob':
-        var nm2 = document.getElementById('aj-n'), num = document.getElementById('aj-j').value.trim();
-        if (!nm2.value.trim()) { nm2.classList.add('err'); nm2.focus(); return; }
-        S().jobs.push({ num: num || nextNum(), name: nm2.value.trim(), active: true, foreman: document.getElementById('aj-f').value || null });
-        if (t.dataset.req) { var rq = t.dataset.req; S().reports.forEach(function (r) { var rqo = S().requests.filter(function (x) { return x.id === rq; })[0]; if (rqo && r.jobName === rqo.name) { r.job = num; r.jobName = null; } }); S().requests = S().requests.filter(function (x) { return x.id !== rq; }); }
+        var nm2 = document.getElementById('aj-n'), nf = document.getElementById('aj-j'), num = nf.value.trim() || nextNum();
+        nm2.classList.remove('err'); nf.classList.remove('err'); var ferr = document.getElementById('aj-err'); if (ferr) ferr.remove();
+        var bad = function (el, msg) { el.classList.add('err'); el.focus(); el.insertAdjacentHTML('afterend', '<div class="emsg" id="aj-err">' + I('alert-circle', 16) + esc(msg) + '</div>'); };
+        if (!nm2.value.trim()) { bad(nm2, 'Add the job name'); return; }
+        if (!/^[A-Za-z0-9-]{1,20}$/.test(num)) { bad(nf, 'Use numbers and dashes only, like 26-3009'); return; }
+        if (job(num)) { bad(nf, 'Job ' + num + ' already exists'); return; }
+        S().jobs.push({ num: num, name: nm2.value.trim().slice(0, 80), active: true, foreman: document.getElementById('aj-f').value || null });
+        if (t.dataset.req) { var rqo = S().requests.filter(function (x) { return x.id === t.dataset.req; })[0]; if (rqo) S().reports.forEach(function (r) { if (r.jobName === rqo.name) { r.job = num; r.jobName = null; } }); S().requests = S().requests.filter(function (x) { return x.id !== t.dataset.req; }); }
         DB.save(); closeLayer(); route(); toast('Job added. Foremen see it right away.'); break;
       case 'approve': var rr = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; openAddJob(rr.name, rr.id); break;
       case 'merge': openMerge(t.dataset.id); break;
       case 'domerge': var to = document.getElementById('mg').value; if (!to) return; var rq2 = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; S().reports.forEach(function (r) { if (r.jobName === rq2.name) { r.job = to; r.jobName = null; } }); S().requests = S().requests.filter(function (x) { return x.id !== rq2.id; }); DB.save(); closeLayer(); route(); toast('Merged into ' + job(to).name + '.'); break;
-      case 'jobstate': var jj = job(t.dataset.num); jj.active = !jj.active; DB.save(); route(); toast(jj.name + (jj.active ? ' is active again.' : ' marked finished.')); break;
+      case 'jobmenu': var openM = document.querySelector('.menu'); var same = openM && openM.dataset.num === t.dataset.num; if (openM) openM.remove(); if (same) break; var jm = job(t.dataset.num); var mn = document.createElement('div'); mn.className = 'menu'; mn.setAttribute('role', 'menu'); mn.dataset.num = jm.num; mn.innerHTML = '<button role="menuitem" data-act="jobstate" data-num="' + esc(jm.num) + '">' + I(jm.active ? 'check' : 'arrow-right', 16) + (jm.active ? 'Mark job finished' : 'Reopen job') + '</button>'; t.parentNode.appendChild(mn); break;
+      case 'jobstate': var jj = job(t.dataset.num); jj.active = !jj.active; DB.save(); route(); toast(jj.name + (jj.active ? ' is active again.' : ' marked finished.'), function () { jj.active = !jj.active; DB.save(); route(); }); break;
       case 'rem': var pr = person(t.dataset.id); pr.reminder = !pr.reminder; DB.save(); route(); break;
     }
   });

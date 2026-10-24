@@ -283,6 +283,10 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 .divider .dv-t{font:14px var(--in);color:var(--mut);white-space:nowrap}
 .pg-n{font:13px var(--in);color:var(--mut)}
 @media (max-width:1023px){.divider{gap:16px}.divider .obtn{min-height:44px}}
+.obtn.tertiary{padding:12px 10px;border-radius:10px}
+.obtn.tertiary:hover{background:rgba(30,27,27,.06)}
+.toprow>.obtn.tertiary{margin-right:-10px}
+@media (max-width:1023px){.main{padding-top:24px}.remc .r{align-items:flex-start}.remc .r>.ic{margin-top:2px}}
 .back{display:inline-flex;align-items:center;gap:4px;font:600 14px var(--in);color:var(--ink);text-decoration:underline;text-underline-offset:3px;align-self:flex-start}
 .dhead{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
 .dhead p{margin:6px 0 0;font:15px var(--in);color:var(--mut)}
@@ -412,3 +416,6 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
   .filters.rf .dd select{width:100%;text-overflow:ellipsis}
 }
 @media (max-width:1023px){.tbl.cards td.hide-m{display:none}}
+
+.filters.wk .dd{flex:none}
+.filters.wk .dd select{width:auto}

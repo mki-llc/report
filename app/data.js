@@ -22,6 +22,7 @@
 
   function dayKey(offset) {
     var d = new Date(); d.setHours(12, 0, 0, 0);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1); // weekends: sample data ends on Friday
     // walk back over weekends so sample data lands on workdays
     var n = 0;
     while (n < offset) { d.setDate(d.getDate() - 1); if (d.getDay() !== 0 && d.getDay() !== 6) n++; }

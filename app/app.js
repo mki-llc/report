@@ -340,7 +340,8 @@
   function renderToday() {
     var k = todayKey(), s = S(), reps = sorted().filter(function (r) { return (!F.job || r.job === F.job) && (!F.who || r.person === F.who); });
     var today = reps.filter(function (r) { return r.date === k; });
-    var expected = s.people.filter(function (p) { return p.reminder && (!F.who || p.id === F.who); });
+    var dow = dObj(k).getDay(), weekend = dow === 0 || dow === 6;
+    var expected = weekend ? [] : s.people.filter(function (p) { return p.reminder && (!F.who || p.id === F.who); });
     var sentIds = {}; today.forEach(function (r) { sentIds[r.person] = r; });
     var missing = expected.filter(function (p) { return !sentIds[p.id]; });
     var mats = today.filter(function (r) { return r.mat.yes; });
@@ -354,11 +355,11 @@
       return '<button class="fm' + (r ? '' : ' miss') + '"' + (r ? ' data-go="#/office/report/' + r.id + '"' : '') + '><div class="av' + (r ? '' : ' gray') + '">' + p.ini + '</div><div class="t"><b>' + esc(p.short) + '</b><span>' + esc(jb) + '</span></div>' + (r ? pill('Sent ' + sentText(r).replace(' PM', '').replace(' AM', ''), 'ok') : pill('Not sent', 'err')) + '</button>';
     }).join('');
     return '<div class="toprow"><div><div class="wdl">' + wd(k) + '</div><h1 class="h1">' + md(k) + '</h1></div><div class="filters">' + dd('job', F.job, jobOpts('All jobs')) + dd('who', F.who, whoOpts('All foremen')) + '</div></div>' +
-      '<div class="stats">' + stat('REPORTS TODAY', sentExp + ' / ' + expected.length, missing.length ? missing.map(function (p) { return p.short; }).join(', ') + ' hasn’t sent yet' : 'Everyone has sent') +
+      '<div class="stats">' + stat('REPORTS TODAY', weekend ? String(today.length) : sentExp + ' / ' + expected.length, weekend ? 'No reports expected on weekends' : missing.length ? missing.map(function (p) { return p.short; }).join(', ') + ' hasn’t sent yet' : 'Everyone has sent') +
       stat('MISSING TODAY', missing.length, missing.length ? 'Reminder goes out at 5:30 PM' : 'Nobody missing', missing.length ? 'err' : 'ok') +
       stat('NEEDS MATERIALS', mats.length, mats.length ? mats.map(jobName).join(', ') : 'Nothing requested today', mats.length ? 'warn' : 'ok') +
       stat('SAFETY ISSUES', safetyWk.length, safetyWk.length ? 'This week' : 'None this week', safetyWk.length ? 'err' : 'ok') + '</div>' +
-      '<div class="sec-t">Foremen today</div><div class="fms">' + fms + '</div>' +
+      '<div class="sec-t">Foremen today</div>' + (fms ? '<div class="fms">' + fms + '</div>' : '<div class="blk"><p class="mut">' + (weekend ? 'It’s the weekend, so nobody is expected to send a report today.' : 'Nobody has daily reminders on.') + '</p></div>') +
       '<div class="tbl cards"><div class="hd"><span class="sec-t">Recent reports</span><a class="u" style="font:600 14px var(--in);color:var(--ink)" href="#/office/reports">See all reports</a></div><table><thead><tr><th>DATE</th><th>JOB</th><th>FOREMAN</th><th>FLAGS</th><th>PHOTOS</th><th></th></tr></thead><tbody>' + repRows(reps.slice(0, 5)) + '</tbody></table></div>';
   }
 
@@ -375,7 +376,7 @@
   /* Divider with a button or text in the middle (from Dan's design system: Divider, Type=Button / Type=Text) */
   function pager(shown, total) {
     var more = total > shown;
-    return '<div class="pager"><div class="divider">' + '<span class="ln"></span>' + (more ? '<button class="obtn secondary" data-act="more">Load more</button>' : '<span class="dv-t">' + (total ? 'That’s all ' + total + ' reports' : 'No reports') + '</span>') + '<span class="ln"></span></div>' +
+    return '<div class="pager"><div class="divider">' + '<span class="ln"></span>' + (more ? '<button class="obtn tertiary" data-act="more">Load more' + I('chevron-down', 18) + '</button>' : '<span class="dv-t">' + (total ? 'That’s all ' + total + ' reports' : 'No reports') + '</span>') + '<span class="ln"></span></div>' +
       (more ? '<div class="pg-n">Showing ' + shown + ' of ' + total + ' reports</div>' : '') + '</div>';
   }
   function resultsHTML() {
@@ -479,8 +480,8 @@
       return '<tr><td class="job"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="av sm">' + p.ini + '</span>' + esc(p.short) + '</div></td><td class="hide-m">' + esc(uj) + '</td>' + dots.replace(/<td class="wkcell">/g, '<td class="wkcell hide-m">') + '<td>' + st + '</td><td><button class="switch' + (p.reminder ? ' on' : '') + '" data-act="rem" data-id="' + p.id + '" role="switch" aria-checked="' + p.reminder + '" aria-label="Daily reminder for ' + esc(p.short) + '"></button></td></tr>';
     }).join('');
     var range = dObj(days[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' to ' + fri.getDate();
-    return '<div class="toprow"><h1 class="h1">Foremen</h1><button class="obtn secondary" data-act="soon">' + I('plus', 18) + 'Add foreman</button></div>' +
-      '<div class="filters">' + dd('week', 'this', [['this', 'This week · ' + range]]) + '<span class="mut" style="font:14px var(--in)">Who sent a report each workday</span></div>' +
+    return '<div class="toprow"><h1 class="h1">Foremen</h1><button class="obtn tertiary" data-act="soon">' + I('plus', 18) + 'Add foreman</button></div>' +
+      '<div class="filters wk">' + dd('week', 'this', [['this', 'This week · ' + range]]) + '<span class="mut" style="font:14px var(--in)">Who sent a report each workday</span></div>' +
       '<div class="tbl"><div style="overflow-x:auto"><table class="fmt"><colgroup><col class="c-n"><col class="c-j hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-w"><col class="c-r"></colgroup><thead><tr><th>FOREMAN</th><th class="hide-m">USUAL JOB</th><th class="hide-m">MON</th><th class="hide-m">TUE</th><th class="hide-m">WED</th><th class="hide-m">THU</th><th class="hide-m">FRI</th><th>THIS WEEK</th><th><span class="hide-m">DAILY REMINDER</span><span class="show-m" title="Daily reminder">' + I('bell', 16) + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
       '<div class="remc"><div class="sec-t" style="font-size:15px;color:var(--mut)">Reminders</div><div class="r">' + I('bell', 20) + '<span style="flex:1">Anyone at MKI can sign in and send a report. People with Daily reminder on are expected every workday: if they haven’t sent one by 5:30 PM they get a text, and if it’s still missing at 7 PM you get an email.</span><button class="obtn link" data-act="soon">Change times</button></div></div>';
   }

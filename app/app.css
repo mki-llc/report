@@ -49,7 +49,7 @@ input,textarea,select{font:inherit;color:inherit}
 .tag{display:inline-flex;align-items:center;gap:10px;background:rgba(0,0,0,.32);border-radius:6px;padding:7px 14px 7px 12px;font:700 18px var(--bc);letter-spacing:.10em;color:rgba(255,255,255,.9);margin-bottom:28px}
 .tag::before{content:"";width:4px;height:16px;border-radius:2px;background:var(--accent)}
 .start .weekday{font:700 32px var(--bc);letter-spacing:.14em;color:rgba(255,255,255,.7);line-height:1.15;margin:0 0 4px}
-.start .date{font:800 60px var(--bc);line-height:.9;margin:0;white-space:nowrap}
+.start .date{font:800 min(60px,15vw) var(--bc);line-height:.9;margin:0;white-space:nowrap}
 .start .go{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:22px 20px;border-radius:12px;background:#fff;color:var(--red);font:700 24px var(--bc);letter-spacing:.04em;box-shadow:0 8px 24px rgba(0,0,0,.22);white-space:nowrap}
 .start .go:active{transform:translateY(1px);background:#f4e8e8}
 .start .hint{font:14px/1.45 var(--in);color:rgba(255,255,255,.72);margin:14px 0 0}
@@ -277,7 +277,12 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 .chips{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font:500 13px var(--in);color:var(--mut)}
 .chip{padding:6px 12px;border-radius:999px;background:#fff;box-shadow:inset 0 0 0 1px var(--line);font:600 13px var(--in);color:var(--ink)}
 .chip.on{background:var(--char);color:#fff;box-shadow:none}
-.pager{display:flex;justify-content:space-between;align-items:center;font:14px var(--in);color:var(--mut)}
+.pager{display:flex;flex-direction:column;align-items:center;gap:10px;font:14px var(--in);color:var(--mut);padding:4px 0 8px}
+.divider{display:flex;align-items:center;gap:24px;width:100%}
+.divider .ln{flex:1;height:1px;background:var(--line)}
+.divider .dv-t{font:14px var(--in);color:var(--mut);white-space:nowrap}
+.pg-n{font:13px var(--in);color:var(--mut)}
+@media (max-width:1023px){.divider{gap:16px}.divider .obtn{min-height:44px}}
 .back{display:inline-flex;align-items:center;gap:4px;font:600 14px var(--in);color:var(--ink);text-decoration:underline;text-underline-offset:3px;align-self:flex-start}
 .dhead{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
 .dhead p{margin:6px 0 0;font:15px var(--in);color:var(--mut)}

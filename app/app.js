@@ -372,10 +372,16 @@
       return true;
     });
   }
+  /* Divider with a button or text in the middle (from Dan's design system: Divider, Type=Button / Type=Text) */
+  function pager(shown, total) {
+    var more = total > shown;
+    return '<div class="pager"><div class="divider">' + '<span class="ln"></span>' + (more ? '<button class="obtn secondary" data-act="more">Load more</button>' : '<span class="dv-t">' + (total ? 'That’s all ' + total + ' reports' : 'No reports') + '</span>') + '<span class="ln"></span></div>' +
+      (more ? '<div class="pg-n">Showing ' + shown + ' of ' + total + ' reports</div>' : '') + '</div>';
+  }
   function resultsHTML() {
     var list = reportList(), shown = list.slice(0, F.more);
     return '<div class="tbl cards"><table><thead><tr><th>DATE</th><th>JOB</th><th>FOREMAN</th><th>CREW</th><th>FLAGS</th><th>PHOTOS</th><th></th></tr></thead><tbody>' + (shown.length ? repRows(shown, 'crew') : '<tr><td colspan="7" class="mut">No reports match these filters.</td></tr>') + '</tbody></table></div>' +
-      '<div class="pager"><span>Showing ' + shown.length + ' of ' + list.length + ' reports</span>' + (list.length > shown.length ? '<button class="obtn secondary" data-act="more">Load more</button>' : '') + '</div>';
+      pager(shown.length, list.length);
   }
   /* Suggestions while typing: jobs and foremen that match, so a few letters is enough. */
   function suggestHTML(q) {

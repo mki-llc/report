@@ -110,7 +110,7 @@
   function renderSignin() {
     $app.innerHTML = previewBar('f') + '<main class="dark signin"><img class="logo" src="' + LOGO + '" alt="MKI LLC"><h1>SIGN IN ONCE</h1><p>Use your MKI work account, the same one you use for email. You stay signed in on this phone after that.</p><div class="grow"></div>' +
       '<button class="msbtn" data-act="signin"><svg width="20" height="20" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#F25022"/><rect x="11" y="1" width="9" height="9" fill="#7FBA00"/><rect x="1" y="11" width="9" height="9" fill="#00A4EF"/><rect x="11" y="11" width="9" height="9" fill="#FFB900"/></svg>Sign in with Microsoft</button>' +
-      '<p class="cap">Preview: this signs you in as a sample foreman. Nothing is sent anywhere.</p></main>';
+      '<p class="cap">Preview: this signs you in as Andy Harbin, a sample foreman. Nothing is sent anywhere. <button class="u" style="color:inherit;font:inherit;padding:12px 0;margin:-12px 0" data-act="resetdemo">Start over with fresh sample data</button></p></main>';
   }
 
   /* ---------------- foreman: report ---------------- */
@@ -609,7 +609,8 @@
     var a = t.dataset.act, d;
     switch (a) {
       case 'start': go('#/report'); break;
-      case 'signin': S().me = 'medwards'; DB.save(); go('#/'); break;
+      case 'signin': S().me = 'aharbin'; DB.save(); go('#/'); break;
+      case 'resetdemo': DB.reset(); toast('Sample data reset.'); go('#/signin'); break;
       case 'signout': S().me = null; DB.save(); go('#/signin'); break;
       case 'done': go('#/'); break;
       case 'close': closeLayer(); V = null; break;

@@ -32,7 +32,7 @@
   function job(num) { return S().jobs.filter(function (j) { return j.num === num; })[0]; }
   function jobName(r) { if (r.jobName) return r.jobName; var j = job(r.job); return j ? j.name : r.job; }
   function sentText(r) { var p = r.sentAt.split(':'), h = +p[0], ap = h >= 12 ? 'PM' : 'AM'; return (h % 12 || 12) + ':' + p[1] + ' ' + ap; }
-  function flagsOf(r) { var f = []; if (r.mat.yes) f.push(['Materials', 'warn']); if (r.delay.yes) f.push(['Delay', 'warn']); if (r.safety.yes) f.push(['Safety', 'err']); if (!f.length) f.push(['All clear', 'ok']); return f; }
+  function flagsOf(r) { var f = []; if (r.sentDate && r.sentDate !== r.date) f.push(['Sent late', 'neutral']); if (r.mat.yes) f.push(['Materials', 'warn']); if (r.delay.yes) f.push(['Delay', 'warn']); if (r.safety.yes) f.push(['Safety', 'err']); if (!f.filter(function (x) { return x[1] !== 'neutral'; }).length) f.push(['All clear', 'ok']); return f; }
   function pill(t, k, sm) { var ic = k === 'ok' ? 'check' : k === 'err' ? 'alert-circle' : k === 'warn' ? 'alert-triangle' : null; return '<span class="pill ' + k + '">' + (ic ? I(ic, sm ? 13 : 14) : '') + esc(t) + '</span>'; }
   function toast(msg, undo) {
     var old = document.querySelector('.toast'); if (old) old.remove();
@@ -54,10 +54,12 @@
 
   var MAXP = 30; // photos per report
   /* ---------------- draft ---------------- */
-  function newDraft() { return { date: todayKey(), job: null, start: null, finish: null, crew: 0, work: '', mat: { yes: null, text: '' }, delay: { yes: null, text: '' }, safety: { yes: null, text: '' }, plan: '', photos: [], weather: null, errors: null }; }
-  function hasContent(d) { return !!(d.job || d.start || d.finish || d.crew || d.work || d.plan || d.photos.length || d.mat.yes !== null || d.delay.yes !== null || d.safety.yes !== null); }
+  function newDraft() { return { date: todayKey(), day: todayKey(), job: null, work: [''], mat: { yes: null, text: '' }, delay: { yes: null, text: '' }, safety: { yes: null, text: '' }, plan: [''], photos: [], weather: null, errors: null }; }
+  function items(x) { return (Array.isArray(x) ? x : [x || '']).map(function (t) { return String(t || '').trim(); }).filter(Boolean); }
+  function fixDraft(d) { if (!Array.isArray(d.work)) d.work = [d.work || '']; if (!Array.isArray(d.plan)) d.plan = [d.plan || '']; if (!d.work.length) d.work = ['']; if (!d.plan.length) d.plan = ['']; if (!d.day) d.day = d.date; return d; }
+  function hasContent(d) { fixDraft(d); return !!(d.job || items(d.work).length || items(d.plan).length || d.photos.length || d.mat.yes !== null || d.delay.yes !== null || d.safety.yes !== null); }
   // A report started yesterday (night shift, or past midnight) stays as yesterday's report instead of being wiped.
-  function D() { var s = S(), t = todayKey(); if (!s.draft || (s.draft.date !== t && !(hasContent(s.draft) && (dObj(t) - dObj(s.draft.date)) / 864e5 <= 1))) { s.draft = newDraft(); } return s.draft; }
+  function D() { var s = S(), t = todayKey(); if (!s.draft || (s.draft.date !== t && !(hasContent(s.draft) && (dObj(t) - dObj(s.draft.date)) / 864e5 <= 1))) { s.draft = newDraft(); } return fixDraft(s.draft); }
   var saveT, warned = false; function saveSoon() { clearTimeout(saveT); saveT = setTimeout(function () { if (!DB.save() && !warned) { warned = true; toast('This phone is low on space. Your report is kept while the app is open.'); } }, 300); }
 
   /* ---------------- router ---------------- */
@@ -84,6 +86,7 @@
   window.addEventListener('hashchange', route);
   window.addEventListener('popstate', function () { if (layerHist) { layerHist = false; if ($layer.firstChild) { closeLayer(); } } });
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey && e.target.dataset && e.target.dataset.li) { e.preventDefault(); var dk = D(), key = e.target.dataset.li, at = +e.target.dataset.i + 1; dk[key].splice(at, 0, ''); saveSoon(); refresh('q-' + key); focusItem(key, at); return; }
     if (e.key === 'Escape' && $layer.firstChild && !document.querySelector('.viewer')) { closeLayer(); return; }
     if (e.key === 'Tab' && $layer.firstChild) { var f = [].slice.call($layer.querySelectorAll('button:not([disabled]),input,select,textarea,[tabindex="0"]')).filter(function (x) { return x.offsetParent !== null; }); if (!f.length) return; var a = f[0], z = f[f.length - 1]; if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); } else if (!$layer.contains(document.activeElement)) { e.preventDefault(); a.focus(); } }
     if (e.key === 'Enter' && e.target.matches && e.target.matches('tr[data-go]')) go(e.target.dataset.go);
@@ -142,12 +145,29 @@
   }
   function photosCard(d) {
     var tiles = d.photos.map(function (p, i) { return '<div class="tile" style="background-image:url(' + p + ')"><button class="tile-open" data-act="viewer" data-id="draft" data-i="' + i + '" aria-label="Open photo ' + (i + 1) + '"></button><button class="rm" data-act="rmphoto" data-i="' + i + '" aria-label="Remove photo">' + I('x', 14, '#fff') + '</button></div>'; }).join('');
-    return '<section class="card" id="q-photos"><div class="ph-h">' + qLabel(9, 'PHOTOS') + '<span class="help" style="font-weight:500">' + d.photos.length + ' of ' + MAXP + ' · optional</span></div>' +
+    return '<section class="card" id="q-photos"><div class="ph-h">' + qLabel(8, 'PHOTOS') + '<span class="help" style="font-weight:500">' + d.photos.length + ' of ' + MAXP + ' · optional</span></div>' +
       '<div class="grid">' + tiles + (d.photos.length < MAXP ? '<label class="addt">' + I('camera', 24) + 'Add<input type="file" accept="image/*" multiple class="sr" data-act="photos"></label>' : '') + '</div></section>';
+  }
+  function dayLabel(k) { var diff = Math.round((dObj(todayKey()) - dObj(k)) / 864e5); var long = wd(k) + ', ' + dObj(k).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); return diff === 0 ? 'Today · ' + long : diff === 1 ? 'Yesterday · ' + long : long; }
+  function dateCard(d, e) {
+    var late = d.day !== todayKey();
+    return '<section class="card" id="q-date">' + qLabel(1, 'REPORT DATE') +
+      '<button class="select has" data-act="dates">' + I('calendar', 20, '#6B6262') + '<span class="v">' + dayLabel(d.day) + '</span>' + I('chevron-down', 20, '#6B6262') + '</button>' +
+      (late ? '<span class="jobtag">' + I('clock', 13) + 'Late report · the office will see it was sent today</span>' : '<div class="help">Forgot a day? Tap to pick an earlier date.</div>') + '</section>';
+  }
+  function listCard(n, key, title, d, e, add) {
+    var arr = d[key];
+    var rows = arr.map(function (v, i) {
+      return '<div class="li-row"><span class="li-n">' + (i + 1) + '.</span><textarea class="li" rows="1" aria-label="' + title + ', item ' + (i + 1) + '" data-f="' + key + '.' + i + '" data-li="' + key + '" data-i="' + i + '" placeholder="' + (i === 0 ? 'Type or tap the mic to talk' : 'Next item') + '" enterkeyhint="next">' + esc(v) + '</textarea>' +
+        (arr.length > 1 ? '<button class="li-x" data-act="rmitem" data-k="' + key + '" data-i="' + i + '" aria-label="Remove item ' + (i + 1) + '">' + I('x', 16) + '</button>' : '') + '</div>';
+    }).join('');
+    return '<section class="card' + (e[key] ? ' bad' : '') + '" id="q-' + key + '">' + qLabel(n, title) + '<div class="li-list">' + rows + '</div>' +
+      '<button class="li-add" data-act="additem" data-k="' + key + '">' + I('plus', 18) + add + '</button>' +
+      '<div class="mic">' + I('mic', 16) + 'One task per line. Tap the mic on your keyboard to talk</div>' + (e[key] ? emsg(e[key]) : '') + '</section>';
   }
   function jobCard(d, e) {
     var j = d.job;
-    return '<section class="card' + (e.job ? ' bad' : '') + '" id="q-job">' + qLabel(1, 'JOB') +
+    return '<section class="card' + (e.job ? ' bad' : '') + '" id="q-job">' + qLabel(2, 'JOB') +
       '<button class="select' + (j ? ' has' : '') + '" data-act="jobs">' + I('briefcase', 20, '#6B6262') + '<span class="v">' + (j ? esc(j.name) : 'Choose a job') + '</span>' + I('chevron-down', 20, '#6B6262') + '</button>' +
       (j && j.requested ? '<span class="jobtag">' + I('clock', 13) + 'New job · the office will confirm the name</span>' : '') +
       (e.job ? emsg(e.job) : '') + '</section>';
@@ -156,11 +176,12 @@
   /* Update only the card that changed, so the page never re-draws or jumps under your thumb. */
   var CARD = {
     'q-job': function (d, e) { return jobCard(d, e); },
-    'q-hours': function (d, e) { return hoursCard(d, e); },
-    'q-crew': function (d, e) { return crewCard(d, e); },
-    'q-mat': function (d, e) { return ynCard(5, 'mat', 'MATERIALS, EQUIPMENT, OR INSPECTIONS', d, e, 'What’s needed?'); },
-    'q-delay': function (d, e) { return ynCard(6, 'delay', 'WEATHER, SITE, OR OTHER-TRADE DELAYS', d, e, 'What happened?'); },
-    'q-safety': function (d, e) { return ynCard(7, 'safety', 'SAFETY OR QUALITY ISSUES', d, e, 'What happened?'); },
+    'q-date': function (d, e) { return dateCard(d, e); },
+    'q-work': function (d, e) { return listCard(3, 'work', 'WORK COMPLETED TODAY', d, e, 'Add another task'); },
+    'q-plan': function (d, e) { return listCard(7, 'plan', 'PLAN FOR NEXT WORKDAY', d, e, 'Add another task'); },
+    'q-mat': function (d, e) { return ynCard(4, 'mat', 'MATERIALS, EQUIPMENT, OR INSPECTIONS', d, e, 'What’s needed?'); },
+    'q-delay': function (d, e) { return ynCard(5, 'delay', 'WEATHER, SITE, OR OTHER-TRADE DELAYS', d, e, 'What happened?'); },
+    'q-safety': function (d, e) { return ynCard(6, 'safety', 'SAFETY OR QUALITY ISSUES', d, e, 'What happened?'); },
     'q-photos': function (d) { return photosCard(d); }
   };
   function updateBanner() {
@@ -174,31 +195,28 @@
     if (!el || !CARD[id]) { var y = window.scrollY; renderReport(); window.scrollTo(0, y); return; }
     var top = el.getBoundingClientRect().top;
     el.outerHTML = CARD[id](d, d.errors || {});
-    if (id === 'q-job') { var wx = document.querySelector('.wx'); if (wx) wx.innerHTML = I('sun', 16, '#6B6262') + (d.job ? (d.weather ? esc(d.weather) + ' at the job site · added for you' : 'Getting the weather for the job site…') : 'Weather is added for you once you pick a job'); if (d.job && !d.weather) getWeather(); }
+    var nc = document.getElementById(id); if (nc) [].forEach.call(nc.querySelectorAll('textarea'), autoGrow);
+    if (id === 'q-job') { var wx = document.querySelector('.wx'); if (wx) wx.innerHTML = I('sun', 16, '#6B6262') + wxText(d); if (d.job && !d.weather && d.day === todayKey()) getWeather(); }
     updateBanner();
     var n = document.getElementById(id); if (n) { var dy = n.getBoundingClientRect().top - top; if (Math.abs(dy) > 0.5) window.scrollBy(0, dy); }
   }
+  function wxText(d) { return d.job && d.day !== todayKey() ? 'Weather for ' + dayLabel(d.day).replace(/^(Today|Yesterday) · /, '') + ' is added from weather records' : d.job ? (d.weather ? esc(d.weather) + ' at the job site · added for you' : 'Getting the weather for the job site…') : 'Weather is added for you once you pick a job'; }
   function renderReport() {
-    var d = D(), e = d.errors || {}, k = d.date, me = person(S().me);
+    var d = D(), e = d.errors || {}, k = d.day, me = person(S().me);
     var nErr = Object.keys(e).length;
-    var wx = d.job ? (d.weather ? esc(d.weather) + ' at the job site · added for you' : 'Getting the weather for the job site…') : 'Weather is added for you once you pick a job';
+    var wx = wxText(d);
     var wide = isWide();
     var head = '<header class="fh"><div class="row"><div><img class="logo" src="' + LOGO + '" alt="MKI LLC"><div class="wd">' + wd(k).toUpperCase() + '</div><div class="dt">' + md(k).toUpperCase() + '</div></div><div class="name">' + esc(me.short) + '</div></div></header>';
-    var work = textCard(4, 'work', 'WORK COMPLETED TODAY', d, e);
-    var mat = ynCard(5, 'mat', 'MATERIALS, EQUIPMENT, OR INSPECTIONS', d, e, 'What’s needed?');
-    var delay = ynCard(6, 'delay', 'WEATHER, SITE, OR OTHER-TRADE DELAYS', d, e, 'What happened?');
-    var safety = ynCard(7, 'safety', 'SAFETY OR QUALITY ISSUES', d, e, 'What happened?');
-    var plan = textCard(8, 'plan', 'PLAN FOR NEXT WORKDAY', d, e);
+    var work = CARD['q-work'](d, e), mat = CARD['q-mat'](d, e), delay = CARD['q-delay'](d, e), safety = CARD['q-safety'](d, e), plan = CARD['q-plan'](d, e);
     var body = (nErr ? '<div class="banner" id="banner">' + I('alert-circle', 20) + (nErr === 1 ? '1 answer is missing. It’s marked below.' : nErr + ' answers are missing. They’re marked below.') + '</div>' : '') +
-      jobCard(d, e) + '<div class="wx">' + I('sun', 16, '#6B6262') + wx + '</div>' +
-      '<div class="pair">' + hoursCard(d, e) + crewCard(d, e) + '</div>' +
+      '<div class="pair">' + dateCard(d, e) + jobCard(d, e) + '</div>' + '<div class="wx">' + I('sun', 16, '#6B6262') + wx + '</div>' +
       '<div class="cols"><div class="col">' + work + plan + '</div><div class="col">' + mat + delay + safety + '</div></div>' +
       photosCard(d) +
       '<div class="sendrow"><p class="help" style="margin:0">Goes to the office and the job folder right away.</p><button class="btn btn-primary" data-act="send">SEND REPORT</button></div>';
     // phone order: work, materials, delays, safety, plan (cols use display:contents, so reorder for phone)
     if (!wide) body = body.replace('<div class="cols"><div class="col">' + work + plan + '</div><div class="col">' + mat + delay + safety + '</div></div>', work + mat + delay + safety + plan);
     $app.innerHTML = previewBar('f') + head + '<main class="ql">' + body + '</main>';
-    if (d.job && !d.weather) getWeather();
+    if (d.job && !d.weather && d.day === todayKey()) getWeather();
     [].forEach.call(document.querySelectorAll('textarea'), autoGrow);
   }
 
@@ -214,18 +232,15 @@
         D().weather = (t || 'Weather') + (f != null ? ', ' + f + '°' : '');
       })
       .catch(function () { D().weather = 'Weather unavailable right now'; })
-      .then(function () { wxBusy = false; saveSoon(); var el = document.querySelector('.wx'); if (el && location.hash.indexOf('report') > -1) el.innerHTML = I('sun', 16, '#6B6262') + esc(D().weather) + ' at the job site · added for you'; });
+      .then(function () { wxBusy = false; saveSoon(); var el = document.querySelector('.wx'); if (el && location.hash.indexOf('report') > -1 && D().day === todayKey()) el.innerHTML = I('sun', 16, '#6B6262') + esc(D().weather) + ' at the job site · added for you'; });
   }
 
   function validate(d) {
     var e = {};
     if (!d.job) e.job = 'Pick a job';
-    if (!d.start || !d.finish) e.hours = 'Add your start and finish time';
-    else if (d.start === d.finish) e.hours = 'Start and finish can’t be the same time';
-    if (!d.crew) e.crew = 'Add how many people were on site';
-    if (!d.work.trim()) e.work = 'Say what got done today';
+    if (!items(d.work).length) e.work = 'Add at least one thing that got done';
     ['mat', 'delay', 'safety'].forEach(function (k) { if (d[k].yes === null) e[k] = 'Pick yes or no'; else if (d[k].yes && !d[k].text.trim()) e[k] = 'Add a few words'; });
-    if (!d.plan.trim()) e.plan = 'Say what’s next';
+    if (!items(d.plan).length) e.plan = 'Add at least one thing for next workday';
     return e;
   }
 
@@ -238,11 +253,10 @@
     }
     var now = new Date(), s = S();
     var id = 'r' + now.getTime();
-    var rep = { id: id, date: d.date, person: s.me, job: d.job.num || ('new:' + d.job.name), jobName: d.job.num ? null : d.job.name, sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
-      start: d.start, finish: d.finish, crew: d.crew, weather: d.weather || '', work: d.work.trim(), mat: { yes: d.mat.yes, text: d.mat.yes ? d.mat.text.trim() : '' }, delay: { yes: d.delay.yes, text: d.delay.yes ? d.delay.text.trim() : '' }, safety: { yes: d.safety.yes, text: d.safety.yes ? d.safety.text.trim() : '' }, plan: d.plan.trim(), photos: d.photos.length, photoData: d.photos.slice(0, MAXP) };
+    var rep = { id: id, date: d.day, sentDate: todayKey(), person: s.me, job: d.job.num || ('new:' + d.job.name), jobName: d.job.num ? null : d.job.name, sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
+      weather: d.day === todayKey() ? (d.weather || '') : '', work: items(d.work), mat: { yes: d.mat.yes, text: d.mat.yes ? d.mat.text.trim() : '' }, delay: { yes: d.delay.yes, text: d.delay.yes ? d.delay.text.trim() : '' }, safety: { yes: d.safety.yes, text: d.safety.yes ? d.safety.text.trim() : '' }, plan: items(d.plan), photos: d.photos.length, photoData: d.photos.slice(0, MAXP) };
     if (d.job.requested) s.requests.push({ id: 'q' + now.getTime(), name: d.job.name, by: s.me, date: todayKey(), note: d.job.addr || '' });
     s.reports.unshift(rep);
-    s.recent[s.me] = s.recent[s.me] || {}; s.recent[s.me].hours = { start: d.start, finish: d.finish };
     s.draft = null;
     // Keep the newest photos; if storage is full, drop photo copies from older reports first, then this one's.
     var ok = DB.save();
@@ -258,10 +272,22 @@
     if (!r) return go('#/');
     var me = person(r.person), fl = [];
     if (r.mat.yes) fl.push('Needs materials'); if (r.delay.yes) fl.push('Delay'); if (r.safety.yes) fl.push('Safety');
-    $app.innerHTML = previewBar('f') + '<main class="dark sent"><div class="okc">' + I('check', 38, '#fff') + '</div><h1>REPORT SENT</h1><p class="sub">You’re done for today. Thanks, ' + esc(me.first) + '.</p>' +
-      '<div class="sum"><div><span>Job</span><b>' + esc(jobName(r)) + '</b></div><div><span>Sent</span><b>' + shortDate(r.date) + ' · ' + sentText(r) + '</b></div><div><span>Hours</span><b>' + fmt12(r.start) + ' to ' + fmt12(r.finish) + '</b></div><div><span>Photos</span><b>' + r.photos + '</b></div><div><span>Flagged</span><b>' + (fl.length ? fl.join(', ') : 'Nothing') + '</b></div></div>' +
+    $app.innerHTML = previewBar('f') + '<main class="dark sent"><div class="okc">' + I('check', 38, '#fff') + '</div><h1>REPORT SENT</h1><p class="sub">' + (r.sentDate && r.sentDate !== r.date ? 'Your report for ' + shortDate(r.date) + ' is in. Thanks, ' : 'You’re done for today. Thanks, ') + esc(me.first) + '.</p>' +
+      '<div class="sum"><div><span>Job</span><b>' + esc(jobName(r)) + '</b></div><div><span>Report for</span><b>' + shortDate(r.date) + '</b></div><div><span>Sent</span><b>' + shortDate(r.sentDate || r.date) + ' · ' + sentText(r) + '</b></div><div><span>Photos</span><b>' + r.photos + '</b></div><div><span>Flagged</span><b>' + (fl.length ? fl.join(', ') : 'Nothing') + '</b></div></div>' +
       '<div class="grow"></div><button class="btn btn-white" data-act="done">DONE</button><p class="cap">Next time you open the app it starts fresh.</p></main>';
   }
+
+  /* ---------------- report date tray ---------------- */
+  function keyOf(dt) { return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0'); }
+  function openDates() {
+    var d = D(), t = dObj(todayKey()), rows = '';
+    for (var i = 0; i < 7; i++) { var x = new Date(t); x.setDate(x.getDate() - i); var k = keyOf(x), sent = S().reports.some(function (r) { return r.person === S().me && r.date === k; });
+      rows += '<button class="jrow' + (d.day === k ? ' on' : '') + '" data-act="pickday" data-day="' + k + '"><b>' + dayLabel(k) + '</b>' + (sent ? '<span>' + I('check', 13) + ' You already sent a report for this day</span>' : '') + '</button>'; }
+    var min = new Date(t); min.setDate(min.getDate() - 30);
+    openLayer('<div class="dim" data-act="close"></div><div class="tray sheet narrow" role="dialog" aria-label="Report date"><div class="grab"></div><div class="th"><h2>Which day is this for?</h2><button class="btn btn-tertiary" data-act="close">CANCEL</button></div>' +
+      '<div class="scroll">' + rows + '</div><div class="fld"><label for="pd">Older date</label><input id="pd" type="date" min="' + keyOf(min) + '" max="' + todayKey() + '" value="' + d.day + '"></div></div>');
+  }
+  function focusItem(k, i) { var el = document.querySelector('[data-f="' + k + '.' + i + '"]'); if (el) el.focus({ preventScroll: false }); }
 
   /* ---------------- job tray ---------------- */
   function recentJobs() {
@@ -414,7 +440,6 @@
     return list.map(function (r) {
       var p = person(r.person);
       return '<tr class="click" tabindex="0" role="link" aria-label="Open report: ' + esc(jobName(r)) + ', ' + shortDate(r.date) + '" data-go="#/office/report/' + r.id + '"><td class="date-td">' + shortDate(r.date) + '</td><td class="job">' + esc(jobName(r)) + '</td><td>' + esc(p.short) + '</td>' +
-        (cols === 'crew' ? '<td class="hide-m">' + r.crew + '</td>' : '') +
         '<td class="flags-td"><div class="flags">' + flagsOf(r).map(function (f) { return pill(f[0], f[1]); }).join('') + '</div></td><td class="thumbs-td">' + thumbs(r) + '</td><td class="go">' + I('chevron-right', 18) + '</td></tr>';
     }).join('');
   }
@@ -453,7 +478,7 @@
       if (F.job && r.job !== F.job) return false; if (F.who && r.person !== F.who) return false;
       if (F.range !== 'all') { var days = (dObj(todayKey()) - dObj(r.date)) / 864e5; if (days >= +F.range) return false; }
       var c = F.chips; if (c.mat && !r.mat.yes) return false; if (c.delay && !r.delay.yes) return false; if (c.safety && !r.safety.yes) return false; if (c.photos && !r.photos) return false;
-      if (F.q) { var hay = [jobName(r), person(r.person).name, r.work, r.plan, r.mat.text, r.delay.text, r.safety.text].join(' ').toLowerCase(); if (hay.indexOf(F.q.toLowerCase()) < 0) return false; }
+      if (F.q) { var hay = [jobName(r), person(r.person).name, items(r.work).join(' '), items(r.plan).join(' '), r.mat.text, r.delay.text, r.safety.text].join(' ').toLowerCase(); if (hay.indexOf(F.q.toLowerCase()) < 0) return false; }
       return true;
     });
   }
@@ -465,7 +490,7 @@
   }
   function resultsHTML() {
     var list = reportList(), shown = list.slice(0, F.more);
-    return '<div class="tbl cards"><table><thead><tr><th>DATE</th><th>JOB</th><th>FOREMAN</th><th>CREW</th><th>FLAGS</th><th>PHOTOS</th><th></th></tr></thead><tbody>' + (shown.length ? repRows(shown, 'crew') : '<tr><td colspan="7" class="mut">No reports match these filters.</td></tr>') + '</tbody></table></div>' +
+    return '<div class="tbl cards"><table><thead><tr><th>DATE</th><th>JOB</th><th>FOREMAN</th><th>FLAGS</th><th>PHOTOS</th><th></th></tr></thead><tbody>' + (shown.length ? repRows(shown, 'crew') : '<tr><td colspan="6" class="mut">No reports match these filters.</td></tr>') + '</tbody></table></div>' +
       pager(shown.length, list.length);
   }
   /* Suggestions while typing: jobs and foremen that match, so a few letters is enough. */
@@ -488,7 +513,8 @@
   function renderDetail(id) {
     var r = S().reports.filter(function (x) { return x.id === id; })[0];
     if (!r) return '<a class="back" href="#/office/reports">' + I('chevron-left', 18) + 'All reports</a><p>Report not found.</p>';
-    var p = person(r.person), x = dur(r.start, r.finish);
+    var p = person(r.person), late = r.sentDate && r.sentDate !== r.date;
+    function list(l, arr) { var a = items(arr); return '<div class="blk"><div class="l">' + l + '</div>' + (a.length > 1 ? '<ol class="olist">' + a.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ol>' : '<p>' + esc(a[0] || '') + '</p>') + '</div>'; }
     function blk(l, body, st) { return '<div class="blk"><div class="l">' + l + '</div>' + (st ? '<div>' + st + '</div>' : '') + (body ? '<p>' + esc(body) + '</p>' : '') + '</div>'; }
     var pics = r.photoData && r.photoData.length ? r.photoData : null;
     function ph(i, cls) {
@@ -497,15 +523,16 @@
       return '<button class="ptile ' + cls + '" data-act="viewer" data-id="' + r.id + '" data-i="' + i + '" aria-label="Open photo ' + (i + 1) + ' of ' + r.photos + '"' + (pics && pics[i] ? ' style="background:url(' + pics[i] + ') center/cover"' : '') + '>' + inner + more + '</button>';
     }
     return '<a class="back" href="#/office/reports">' + I('chevron-left', 18) + 'All reports</a>' +
-      '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + sentText(r) + '</p></div><div class="filters"><button class="obtn tertiary" data-act="soon">' + I('folder', 18) + 'Open job folder</button><button class="obtn secondary" data-act="soon">' + I('file-text', 18) + 'Download PDF</button></div></div>' +
-      '<div class="dbody"><div class="dl-col"><div class="facts"><div class="fact"><div class="l">CREW ON SITE</div><div class="v">' + r.crew + '</div><div class="s">Foreman included</div></div>' +
-      '<div class="fact"><div class="l">WEATHER</div><div class="v">' + esc((r.weather || '—').split(',').slice(-1)[0].trim()) + '</div><div class="s">' + esc((r.weather || '').split(',')[0]) + '</div></div>' +
-      '<div class="fact"><div class="l">HOURS</div><div class="v">' + hrsShort(x.mins) + '</div><div class="s">' + fmt12(r.start) + ' to ' + fmt12(r.finish) + (x.over ? ' next day' : '') + '</div></div></div>' +
-      blk('Work completed today', r.work) +
+      '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + (late ? shortDate(r.sentDate) + ' ' : '') + sentText(r) + '</p></div><div class="filters"><button class="obtn tertiary" data-act="soon">' + I('folder', 18) + 'Open job folder</button><button class="obtn secondary" data-act="soon">' + I('file-text', 18) + 'Download PDF</button></div></div>' +
+      '<div class="dbody"><div class="dl-col"><div class="facts">' +
+      '<div class="fact"><div class="l">WEATHER</div><div class="v">' + esc(r.weather ? r.weather.split(',').slice(-1)[0].trim() : '—') + '</div><div class="s">' + esc(r.weather ? r.weather.split(',')[0] : 'From weather records') + '</div></div>' +
+      '<div class="fact"><div class="l">PHOTOS</div><div class="v">' + r.photos + '</div><div class="s">' + (r.photos ? 'Tap one to open it' : 'None sent') + '</div></div>' +
+      '<div class="fact"><div class="l">SENT</div><div class="v">' + sentText(r) + '</div><div class="s">' + (late ? 'Late · on ' + shortDate(r.sentDate) : 'Same day') + '</div></div></div>' +
+      list('Work completed today', r.work) +
       blk('Materials, equipment, or inspections', r.mat.yes ? r.mat.text : '', r.mat.yes ? pill('Needs materials', 'warn') : pill('Nothing needed', 'ok')) +
       blk('Weather, site, or other-trade delays', r.delay.yes ? r.delay.text : '', r.delay.yes ? pill('Delay', 'warn') : pill('No delays', 'ok')) +
       blk('Safety or quality issues', r.safety.yes ? r.safety.text : '', r.safety.yes ? pill('Safety issue', 'err') : pill('No incidents', 'ok')) +
-      blk('Plan for next workday', r.plan) + '</div>' +
+      list('Plan for next workday', r.plan) + '</div>' +
       '<div class="pbox"><div class="toprow"><span class="blk" style="padding:0"><span class="l">PHOTOS · ' + r.photos + '</span></span>' + (r.photos ? '<button class="obtn link" data-act="soon">Download all</button>' : '') + '</div>' +
       (r.photos ? ph(0, 'big') + (r.photos > 1 ? '<div class="two">' + ph(1, '') + (r.photos > 2 ? ph(2, '') : '<div style="background:none"></div>') + '</div>' : '') + '<div class="ofoot">Tap a photo to open it full size</div>' : '<div class="ofoot">No photos with this report.</div>') + '</div></div>';
   }
@@ -591,6 +618,10 @@
       case 'vnext': vGo(V.i + 1); break;
       case 'vgo': vGo(+t.dataset.i); break;
       case 'jobs': openJobs(); break;
+      case 'dates': openDates(); break;
+      case 'pickday': d = D(); d.day = t.dataset.day; if (d.day !== todayKey()) d.weather = null; saveSoon(); closeLayer(); var dy0 = window.scrollY; renderReport(); window.scrollTo(0, dy0); break;
+      case 'additem': d = D(); d[t.dataset.k].push(''); saveSoon(); refresh('q-' + t.dataset.k); focusItem(t.dataset.k, d[t.dataset.k].length - 1); break;
+      case 'rmitem': d = D(); d[t.dataset.k].splice(+t.dataset.i, 1); if (!d[t.dataset.k].length) d[t.dataset.k] = ['']; saveSoon(); refresh('q-' + t.dataset.k); break;
       case 'pickjob': d = D(); var j = job(t.dataset.num); if (!d.job || d.job.num !== j.num) { d.weather = null; } d.job = { num: j.num, name: j.name }; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
       case 'reqjob': var q = document.querySelector('[data-act=jobq]'); openReqJob(q ? q.value : ''); break;
       case 'usejob': var nm = document.getElementById('nj').value.trim(); if (!nm) { document.getElementById('nj').focus(); return; } d = D(); d.job = { num: null, name: nm, requested: true, addr: document.getElementById('na').value.trim() }; d.weather = null; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
@@ -642,10 +673,11 @@
   });
   document.addEventListener('change', function (ev) {
     var t = ev.target;
+    if (t.id === 'pd' && t.value) { var dd0 = D(), mx = todayKey(); if (t.value <= mx) { dd0.day = t.value; if (dd0.day !== mx) dd0.weather = null; saveSoon(); closeLayer(); var yy = window.scrollY; renderReport(); window.scrollTo(0, yy); } return; }
     if (t.dataset.fil && t.tagName === 'SELECT') { F[t.dataset.fil] = t.value; F.more = 9; route(); }
     if (t.dataset.act === 'photos') addPhotos(t.files);
   });
-  function autoGrow(t) { t.style.height = 'auto'; t.style.height = Math.max(t.scrollHeight + 2, t.classList.contains('sm') ? 99 : 110) + 'px'; }
+  function autoGrow(t) { t.style.height = 'auto'; t.style.height = Math.max(t.scrollHeight + 2, t.classList.contains('li') ? 52 : t.classList.contains('sm') ? 99 : 110) + 'px'; }
 
   /* Photos are shrunk on the phone before saving, so reports stay small. */
   function addPhotos(files) {

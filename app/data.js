@@ -45,8 +45,8 @@
 
   var REPORTS = [
     R('r1', 0, 'agalindo', '26-3007', '16:12', '07:00', '15:30', 6, '40 sheets of 5/8" drywall for Monday. Framing inspection unit 210 needs scheduling.', null, null, 3,
-      'Hung drywall on level 2, east side. Taped and first coat in units 204–206. Cleaned up staging area.',
-      'Second coat units 204–206. Start hanging units 207–209.'),
+      ['Hung drywall on level 2, east side', 'Taped and first coat in units 204–206', 'Cleaned up staging area'],
+      ['Second coat units 204–206', 'Start hanging units 207–209']),
     R('r2', 0, 'bfogle', '26-3008', '17:03', '06:30', '15:00', 4, null, null, null, 6,
       'Framed the north locker room walls. Set door frames for rooms 104 and 105.', 'Start blocking for the bench supports.'),
     R('r3', 1, 'medwards', '26-3005', '16:40', '07:00', '15:30', 5, 'Scaffold rental extension past Friday.', 'Lift was down for 2 hours in the morning, waiting on the rental company.', null, 4),

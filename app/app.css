@@ -465,3 +465,16 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 .tbl tr.click:focus-visible{outline:2px solid var(--char);outline-offset:-2px}
 .modal .emsg{margin-top:-2px}
 .fld input.err{border:1.5px solid var(--err)}
+
+/* Report date + task lists */
+.li-list{display:flex;flex-direction:column;gap:8px}
+.li-row{display:flex;align-items:flex-start;gap:8px}
+.li-n{flex:none;width:22px;padding-top:15px;font:700 16px var(--bc);color:var(--mut);text-align:right}
+textarea.li{min-height:52px;flex:1;padding:13px 14px}
+.li-x{flex:none;width:44px;height:52px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--mut)}
+.li-add{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;font:600 15px var(--in);color:var(--ink);padding:10px 4px;margin:-4px 0 -4px 26px;min-height:44px}
+.bad .li-list textarea{background:#FFFBFA;border:1.5px solid var(--err)}
+.olist{margin:0;padding-left:22px;font:15px/1.5 var(--in);display:flex;flex-direction:column;gap:4px;overflow-wrap:anywhere}
+.jrow span .ic{display:inline-block;vertical-align:-2px}
+@media (max-width:1023px){.olist{font-size:14px}}
+@media (min-width:700px){.pair{align-items:stretch}.pair>.card{height:100%}}

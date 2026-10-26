@@ -1,6 +1,8 @@
 /* Preview data. Replaced by SharePoint lists once Microsoft sign-in is connected. */
 (function () {
-  var KEY = 'mki-preview-v1';
+  // ?live turns on the real Microsoft connection on this device, ?preview goes back to sample data.
+  var LIVE = (function () { try { var q = location.search; if (/[?&]live\b/.test(q)) localStorage.setItem('mki-mode', 'live'); if (/[?&]preview\b/.test(q)) localStorage.removeItem('mki-mode'); return localStorage.getItem('mki-mode') === 'live'; } catch (e) { return false; } })();
+  var KEY = LIVE ? 'mki-live-v1' : 'mki-preview-v1';
 
   var PEOPLE = [
     { id: 'agalindo', name: 'Abraham Galindo', short: 'Abraham G.', first: 'Abraham', ini: 'AG', email: 'agalindo@mkillc.com', role: 'Foreman', usualJob: '26-3007', reminder: true },
@@ -68,14 +70,23 @@
   ];
 
   function load() {
+    if (LIVE) {
+      // Live: jobs, people and reports come from SharePoint. Only the unsent draft is kept on the phone.
+      var lb = { v: 1, jobs: [], people: [], reports: [], requests: [], me: null, role: null, draft: null, recent: {} };
+      try { var ls = JSON.parse(localStorage.getItem(KEY)); if (ls && ls.v === 1) { lb.draft = ls.draft || null; lb.recent = ls.recent || {}; } } catch (e) {}
+      return lb;
+    }
     var base = { v: 1, jobs: JOBS, people: PEOPLE, reports: REPORTS, requests: REQUESTS, me: null, draft: null, recent: {} };
     try { var s = JSON.parse(localStorage.getItem(KEY)); if (s && s.v === 1) { for (var k in base) if (!(k in s) || (Array.isArray(base[k]) && !Array.isArray(s[k]))) s[k] = base[k]; return s; } } catch (e) {}
     return base;
   }
   var state = load();
   // Returns true when saved. False means the phone's storage for this page is full.
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(window.DB ? window.DB.state : state)); return true; } catch (e) { return false; } }
+  function save() {
+    var st = window.DB ? window.DB.state : state;
+    try { localStorage.setItem(KEY, JSON.stringify(LIVE ? { v: 1, draft: st.draft, recent: st.recent } : st)); return true; } catch (e) { return false; }
+  }
   function reset() { try { localStorage.removeItem(KEY); } catch (e) {} state = load(); window.DB.state = state; }
 
-  window.DB = { state: state, save: save, reset: reset, dayKey: dayKey };
+  window.DB = { state: state, save: save, reset: reset, dayKey: dayKey, live: LIVE, seed: { jobs: JOBS, people: PEOPLE } };
 })();

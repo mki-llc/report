@@ -54,8 +54,12 @@
 
   var MAXP = 30, MAXV = 5, MAXVSEC = 180; // photos+videos per report, videos per report, seconds per video
   var VIDS = {}; // video files picked in this session (preview only keeps a still frame after reload)
-  function isVid(p) { return !!p && typeof p === 'object'; }
-  function thumbOf(p) { return isVid(p) ? p.thumb : p; }
+  function isVid(p) { return !!p && typeof p === 'object' && !!p.v; }
+  function thumbOf(p) { return p && typeof p === 'object' ? p.thumb : p; }
+  function srcOf(p) { return p && typeof p === 'object' ? (p.src || (p.key && VIDS[p.key]) || p.thumb) : p; }
+  var LIVE = window.LIVE || { on: false };
+  // Saves to SharePoint in the background; if it fails the office sees a message and can try again.
+  function sync(pr, okMsg) { if (!LIVE.on || !pr) return; pr.then(function () { if (okMsg) toast(okMsg); }, function (e) { console.error(e); toast('Couldn’t save that to SharePoint. Check your connection and try again.'); }); }
   function mmss(sec) { sec = Math.round(sec || 0); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
   function playBadge(p, sm) { return isVid(p) ? '<span class="vbadge' + (sm ? ' sm' : '') + '">' + I('play', sm ? 10 : 12, '#fff') + (sm ? '' : mmss(p.dur)) + '</span>' : ''; }
   function mediaCount(arr) { var v = (arr || []).filter(isVid).length, ph = (arr || []).length - v; return (ph ? ph + (ph === 1 ? ' photo' : ' photos') : '') + (ph && v ? ' · ' : '') + (v ? v + (v === 1 ? ' video' : ' videos') : '') || 'None'; }
@@ -70,6 +74,7 @@
 
   /* ---------------- router ---------------- */
   function route() {
+    if (LIVE.on && !LIVE.ready) return;
     closeLayer();
     var h = location.hash.replace(/^#\/?/, '') || '', parts = h.split('/');
     var isOffice = parts[0] === 'office';
@@ -82,6 +87,7 @@
       if (parts[0] === 'sent') return renderSent(parts[1]);
       return renderStart();
     }
+    if (LIVE.on && S().role !== 'office') return go(me ? '#/' : '#/signin');
     var page = parts[1] || 'today';
     if (page === 'reports') return office('reports', renderReports);
     if (page === 'report') return office('reports', function () { return renderDetail(parts[2]); });
@@ -99,6 +105,7 @@
   });
 
   function previewBar(active) {
+    if (LIVE.on) return S().role === 'office' ? '<nav class="pv" aria-label="View"><span class="pvl">VIEW</span><a href="#/" class="' + (active === 'f' ? 'on' : '') + '">Foreman</a><a href="#/office" class="' + (active === 'o' ? 'on' : '') + '">Office</a></nav>' : '';
     return '<nav class="pv" aria-label="Preview"><span class="pvl">PREVIEW</span><a href="#/" class="' + (active === 'f' ? 'on' : '') + '">Foreman</a><a href="#/office" class="' + (active === 'o' ? 'on' : '') + '">Office</a></nav>';
   }
 
@@ -116,7 +123,7 @@
   function renderSignin() {
     $app.innerHTML = previewBar('f') + '<main class="dark signin"><img class="logo" src="' + LOGO + '" alt="MKI LLC"><h1>SIGN IN ONCE</h1><p>Use your MKI work account, the same one you use for email. You stay signed in on this phone after that.</p><div class="grow"></div>' +
       '<button class="msbtn" data-act="signin"><svg width="20" height="20" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#F25022"/><rect x="11" y="1" width="9" height="9" fill="#7FBA00"/><rect x="1" y="11" width="9" height="9" fill="#00A4EF"/><rect x="11" y="11" width="9" height="9" fill="#FFB900"/></svg>Sign in with Microsoft</button>' +
-      '<p class="cap">Preview: this signs you in as Andy Harbin, a sample foreman. Nothing is sent anywhere. <button class="u" style="color:inherit;font:inherit;padding:12px 0;margin:-12px 0" data-act="resetdemo">Start over with fresh sample data</button></p></main>';
+      (LIVE.on ? '<p class="cap">Only MKI accounts can sign in.</p></main>' : '') + (LIVE.on ? '' : '<p class="cap">Preview: this signs you in as Andy Harbin, a sample foreman. Nothing is sent anywhere. <button class="u" style="color:inherit;font:inherit;padding:12px 0;margin:-12px 0" data-act="resetdemo">Start over with fresh sample data</button></p></main>');
   }
 
   /* ---------------- foreman: report ---------------- */
@@ -263,6 +270,7 @@
     var id = 'r' + now.getTime();
     var rep = { id: id, date: d.day, sentDate: todayKey(), person: s.me, job: d.job.num || ('new:' + d.job.name), jobName: d.job.num ? null : d.job.name, sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
       weather: d.day === todayKey() ? (d.weather || '') : '', work: items(d.work), mat: { yes: d.mat.yes, text: d.mat.yes ? d.mat.text.trim() : '' }, delay: { yes: d.delay.yes, text: d.delay.yes ? d.delay.text.trim() : '' }, safety: { yes: d.safety.yes, text: d.safety.yes ? d.safety.text.trim() : '' }, plan: items(d.plan), photos: d.photos.length, videos: d.photos.filter(isVid).length, photoData: d.photos.slice(0, MAXP) };
+    if (LIVE.on) return sendLive(d, rep);
     if (d.job.requested) s.requests.push({ id: 'q' + now.getTime(), name: d.job.name, by: s.me, date: todayKey(), note: d.job.addr || '' });
     s.reports.unshift(rep);
     s.draft = null;
@@ -272,6 +280,30 @@
     if (!ok) { rep.photoData = []; ok = DB.save(); }
     if (!ok) { s.reports.shift(); s.draft = d; toast('This phone is out of space, so the report wasn’t sent. Nothing was lost, try again.'); return; }
     go('#/sent/' + id);
+  }
+
+  var sending = false;
+  function busy(n, total, frac) {
+    var el = document.getElementById('busytxt');
+    if (!el) { openLayer('<div class="busy" role="status" aria-live="polite"><div class="spin"></div><p id="busytxt"></p><div class="bar"><span id="busybar"></span></div></div>'); el = document.getElementById('busytxt'); }
+    el.textContent = n === -1 ? 'Sending the report…' : n === 0 ? 'Sending…' : 'Uploading ' + n + ' of ' + total + '…';
+    var b = document.getElementById('busybar'); if (b) b.style.width = Math.round((n === -1 ? 1 : frac || 0) * 100) + '%';
+  }
+  function sendLive(d, rep) {
+    if (sending) return; sending = true;
+    var s = S(), media = d.photos.filter(function (p) { return p && typeof p === 'object' && p.key; });
+    rep.note = d.job.requested ? (d.job.addr || '') : '';
+    rep.photoData = d.photos.map(function (p) { return typeof p === 'object' ? { v: p.v, key: p.key, thumb: p.thumb, dur: p.dur } : { thumb: p }; });
+    busy(0);
+    LIVE.sendReport(rep, media, busy).then(function () {
+      sending = false; closeLayer();
+      s.reports.unshift(rep); s.draft = null; LIVE.requests(); DB.save();
+      media.forEach(function (m) { LIVE.blobs.del(m.key).catch(function () {}); });
+      go('#/sent/' + rep.id);
+    }, function (e) {
+      sending = false; closeLayer(); console.error(e);
+      toast(navigator.onLine === false ? 'No signal right now. Your report is saved on this phone, try again when you have signal.' : 'The report didn’t go through. Nothing was lost, tap Send again.');
+    });
   }
 
   /* ---------------- foreman: sent ---------------- */
@@ -389,8 +421,9 @@
     var el = document.getElementById('vimg'), p = V.pics[V.i];
     V.s = 1; V.x = 0; V.y = 0; vApply(false);
     var old = document.querySelector('.vimg video'); if (old) old.pause();
-    if (isVid(p)) el.innerHTML = VIDS[p.key] ? '<video src="' + VIDS[p.key] + '" controls playsinline' + (p.thumb ? ' poster="' + p.thumb + '"' : '') + '></video>' : '<div class="vph"' + (p.thumb ? ' style="background:url(' + p.thumb + ') center/cover"' : '') + '><span class="vnote">' + I('play', 28, '#fff') + 'Video · ' + mmss(p.dur) + '<br>In the real app it plays from SharePoint</span></div>';
-    else el.innerHTML = p ? '<img src="' + p + '" alt="Photo ' + (V.i + 1) + '" draggable="false">' : '<div class="vph">' + I('image', 56, '#fff') + '<span>Sample photo</span></div>';
+    if (isVid(p) && LIVE.on && p.key && !VIDS[p.key] && !p.src) { LIVE.blobs.get(p.key).then(function (b) { if (b && V && V.pics[V.i] === p) { VIDS[p.key] = URL.createObjectURL(b); vShow(); } }).catch(function () {}); }
+    if (isVid(p)) el.innerHTML = VIDS[p.key] || p.src ? '<video src="' + esc(VIDS[p.key] || p.src) + '" controls playsinline' + (p.thumb ? ' poster="' + p.thumb + '"' : '') + '></video>' : '<div class="vph"' + (p.thumb ? ' style="background:url(' + p.thumb + ') center/cover"' : '') + '><span class="vnote">' + I('play', 28, '#fff') + 'Video · ' + mmss(p.dur) + '<br>' + (LIVE.on ? 'Saved with the report' : 'In the real app it plays from SharePoint') + '</span></div>';
+    else el.innerHTML = p ? '<img src="' + esc(srcOf(p)) + '" alt="Photo ' + (V.i + 1) + '" draggable="false">' : '<div class="vph">' + I('image', 56, '#fff') + '<span>Sample photo</span></div>';
     var hint = document.querySelector('.vhint'); if (hint) hint.textContent = isVid(p) ? 'Swipe for the next one' : 'Pinch or double-tap to zoom';
     document.getElementById('vcount').textContent = (V.i + 1) + ' of ' + V.n;
     var th = document.querySelectorAll('.vth'); for (var k = 0; k < th.length; k++) th[k].classList.toggle('on', k === V.i);
@@ -440,7 +473,7 @@
   function office(active, fn) {
     var reqs = S().requests.length;
     var side = '<aside class="side"><img class="logo" src="' + LOGO + '" alt="MKI LLC">' + NAV.map(function (n) { return '<a class="nav' + (n[0] === active ? ' on' : '') + '" href="' + n[3] + '">' + I(n[2], 20) + n[1] + (n[0] === 'jobs' && reqs ? '<span class="badge">' + reqs + '</span>' : '') + '</a>'; }).join('') +
-      '<div class="me"><div class="av" style="background:#5A2A2A">AK</div><div><b>Alex Kovalev</b><span>Owner</span></div></div></aside>';
+      (LIVE.on ? (function () { var m = person(S().me); return '<div class="me"><div class="av" style="background:#5A2A2A">' + esc(m.ini) + '</div><div><b>' + esc(m.name) + '</b><span>' + esc(m.role || 'Office') + ' · <button class="u" style="color:inherit;font:inherit" data-act="signout">Sign out</button></span></div></div>'; })() : '<div class="me"><div class="av" style="background:#5A2A2A">AK</div><div><b>Alex Kovalev</b><span>Owner</span></div></div>') + '</aside>';
     var tabs = '<nav class="tabs">' + NAV.map(function (n) { return '<a class="' + (n[0] === active ? 'on' : '') + '" href="' + n[3] + '">' + I(n[2], 22) + (n[0] === 'reports' ? 'Reports' : n[1]) + '</a>'; }).join('') + '</nav>';
     $app.innerHTML = previewBar('o') + '<div class="of">' + side + '<main class="main">' + fn() + '</main></div>' + tabs;
   }
@@ -529,6 +562,7 @@
     var p = person(r.person), late = r.sentDate && r.sentDate !== r.date;
     function list(l, arr) { var a = items(arr); return '<div class="blk"><div class="l">' + l + '</div>' + (a.length > 1 ? '<ol class="olist">' + a.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ol>' : '<p>' + esc(a[0] || '') + '</p>') + '</div>'; }
     function blk(l, body, st) { return '<div class="blk"><div class="l">' + l + '</div>' + (st ? '<div>' + st + '</div>' : '') + (body ? '<p>' + esc(body) + '</p>' : '') + '</div>'; }
+    if (LIVE.on && r.photos && !r.photoData && r.mediaFolder && !r._loading) { r._loading = true; LIVE.loadMedia(r).then(function () { r._loading = false; if (location.hash.indexOf(r.id) > -1 && !$layer.firstChild) { var y = window.scrollY; route(); window.scrollTo(0, y); } }, function () { r._loading = false; }); }
     var pics = r.photoData && r.photoData.length ? r.photoData : null;
     function ph(i, cls) {
       var more = i === 2 && r.photos > 3 ? '<span class="more">+' + (r.photos - 3) + '</span>' : '';
@@ -536,7 +570,7 @@
       return '<button class="ptile ' + cls + '" data-act="viewer" data-id="' + r.id + '" data-i="' + i + '" aria-label="Open item ' + (i + 1) + ' of ' + r.photos + '"' + (th ? ' style="background:url(' + th + ') center/cover"' : '') + '>' + inner + playBadge(it) + more + '</button>';
     }
     return '<a class="back" href="#/office/reports">' + I('chevron-left', 18) + 'All reports</a>' +
-      '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + (late ? shortDate(r.sentDate) + ' ' : '') + sentText(r) + '</p></div><div class="filters"><button class="obtn tertiary" data-act="soon">' + I('folder', 18) + 'Open job folder</button><button class="obtn secondary" data-act="soon">' + I('file-text', 18) + 'Download PDF</button></div></div>' +
+      '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + (late ? shortDate(r.sentDate) + ' ' : '') + sentText(r) + '</p></div><div class="filters"><button class="obtn tertiary" data-act="' + (LIVE.on && r.mediaUrl ? 'folder' : 'soon') + '" data-id="' + r.id + '">' + I('folder', 18) + (LIVE.on ? 'Open photo folder' : 'Open job folder') + '</button><button class="obtn secondary" data-act="soon">' + I('file-text', 18) + 'Download PDF</button></div></div>' +
       '<div class="dbody"><div class="dl-col"><div class="facts">' +
       '<div class="fact"><div class="l">WEATHER</div><div class="v">' + esc(/-?\d+°/.test(r.weather || '') ? r.weather.match(/-?\d+°/)[0] : '—') + '</div><div class="s">' + esc(r.weather ? r.weather.split(',')[0] : 'From weather records') + '</div></div>' +
       '<div class="fact"><div class="l">PHOTOS & VIDEOS</div><div class="v">' + r.photos + '</div><div class="s">' + (r.videos ? mediaCount(r.photoData && r.photoData.length === r.photos ? r.photoData : []) || (r.videos + ' video') : r.photos ? 'Tap one to open it' : 'None sent') + '</div></div>' +
@@ -622,9 +656,10 @@
     var a = t.dataset.act, d;
     switch (a) {
       case 'start': go('#/report'); break;
-      case 'signin': S().me = 'aharbin'; DB.save(); go('#/'); break;
+      case 'signin': if (LIVE.on) { LIVE.signIn(); break; } S().me = 'aharbin'; DB.save(); go('#/'); break;
+      case 'folder': var fr = S().reports.filter(function (x) { return x.id === t.dataset.id; })[0]; if (fr && fr.mediaUrl) window.open(fr.mediaUrl, '_blank', 'noopener'); break;
       case 'resetdemo': DB.reset(); toast('Sample data reset.'); go('#/signin'); break;
-      case 'signout': S().me = null; DB.save(); go('#/signin'); break;
+      case 'signout': if (LIVE.on) { LIVE.signOut(); break; } S().me = null; DB.save(); go('#/signin'); break;
       case 'done': go('#/'); break;
       case 'close': closeLayer(); V = null; break;
       case 'viewer': openViewer(t.dataset.id, t.dataset.i); break;
@@ -650,7 +685,7 @@
       case 'same': d = D(); var rec = (S().recent[S().me] || {}).hours; if (!rec) { var last = S().reports.filter(function (r) { return r.person === S().me; })[0]; rec = last ? { start: last.start, finish: last.finish } : { start: '07:00', finish: '15:30' }; } d.start = rec.start; d.finish = rec.finish; if (d.errors) delete d.errors.hours; saveSoon(); refresh('q-hours'); toast('Filled in ' + fmt12(rec.start) + ' to ' + fmt12(rec.finish)); break;
       case 'crew': d = D(); d.crew = Math.max(0, Math.min(99, d.crew + (+t.dataset.d))); var n = document.getElementById('crewn'); n.textContent = d.crew; n.classList.toggle('zero', !d.crew); if (d.errors && d.crew && d.errors.crew) { delete d.errors.crew; refresh('q-crew'); } saveSoon(); break;
       case 'yn': if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); d = D(); d[t.dataset.k].yes = t.dataset.v === '1'; if (d.errors) delete d.errors[t.dataset.k]; saveSoon(); refresh('q-' + t.dataset.k); break;
-      case 'rmphoto': d = D(); d.photos.splice(+t.dataset.i, 1); saveSoon(); refresh('q-photos'); break;
+      case 'rmphoto': d = D(); var gone = d.photos.splice(+t.dataset.i, 1)[0]; if (LIVE.on && gone && gone.key) LIVE.blobs.del(gone.key).catch(function () {}); saveSoon(); refresh('q-photos'); break;
       case 'send': send(); break;
       case 'soon': toast('Works once the app is connected to MKI’s SharePoint.'); break;
       case 'chip': F.chips[t.dataset.k] = !F.chips[t.dataset.k]; F.more = 9; route(); break;
@@ -664,15 +699,16 @@
         if (!nm2.value.trim()) { bad(nm2, 'Add the job name'); return; }
         if (!/^[A-Za-z0-9-]{1,20}$/.test(num)) { bad(nf, 'Use numbers and dashes only, like 26-3009'); return; }
         if (job(num)) { bad(nf, 'Job ' + num + ' already exists'); return; }
-        S().jobs.push({ num: num, name: nm2.value.trim().slice(0, 80), active: true, foreman: document.getElementById('aj-f').value || null });
-        if (t.dataset.req) { var rqo = S().requests.filter(function (x) { return x.id === t.dataset.req; })[0]; if (rqo) S().reports.forEach(function (r) { if (r.jobName === rqo.name) { r.job = num; r.jobName = null; } }); S().requests = S().requests.filter(function (x) { return x.id !== t.dataset.req; }); }
-        DB.save(); closeLayer(); route(); toast('Job added. Foremen see it right away.'); break;
+        var nj = { num: num, name: nm2.value.trim().slice(0, 80), active: true, foreman: document.getElementById('aj-f').value || null }, moved = [];
+        S().jobs.push(nj);
+        if (t.dataset.req) { var rqo = S().requests.filter(function (x) { return x.id === t.dataset.req; })[0]; if (rqo) S().reports.forEach(function (r) { if (r.jobName === rqo.name && r.job.indexOf('new:') === 0) { r.job = num; r.jobName = null; moved.push(r); } }); S().requests = S().requests.filter(function (x) { return x.id !== t.dataset.req; }); }
+        DB.save(); closeLayer(); route(); if (LIVE.on) sync(LIVE.addJob(nj).then(function () { return LIVE.patchReports(moved); }), 'Job added. Foremen see it next time they open the app.'); else toast('Job added. Foremen see it right away.'); break;
       case 'approve': var rr = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; openAddJob(rr.name, rr.id); break;
       case 'merge': openMerge(t.dataset.id); break;
-      case 'domerge': var to = document.getElementById('mg').value; if (!to) return; var rq2 = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; S().reports.forEach(function (r) { if (r.jobName === rq2.name) { r.job = to; r.jobName = null; } }); S().requests = S().requests.filter(function (x) { return x.id !== rq2.id; }); DB.save(); closeLayer(); route(); toast('Merged into ' + job(to).name + '.'); break;
+      case 'domerge': var to = document.getElementById('mg').value; if (!to) return; var rq2 = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; var moved2 = []; S().reports.forEach(function (r) { if (r.jobName === rq2.name && r.job.indexOf('new:') === 0) { r.job = to; r.jobName = null; moved2.push(r); } }); S().requests = S().requests.filter(function (x) { return x.id !== rq2.id; }); DB.save(); sync(LIVE.on && LIVE.patchReports(moved2)); closeLayer(); route(); toast('Merged into ' + job(to).name + '.'); break;
       case 'jobmenu': var openM = document.querySelector('.menu'); var same = openM && openM.dataset.num === t.dataset.num; if (openM) openM.remove(); if (same) break; var jm = job(t.dataset.num); var mn = document.createElement('div'); mn.className = 'menu'; mn.setAttribute('role', 'menu'); mn.dataset.num = jm.num; mn.innerHTML = '<button role="menuitem" data-act="jobstate" data-num="' + esc(jm.num) + '">' + I(jm.active ? 'check' : 'arrow-right', 16) + (jm.active ? 'Mark job finished' : 'Reopen job') + '</button>'; t.parentNode.appendChild(mn); break;
-      case 'jobstate': var jj = job(t.dataset.num); jj.active = !jj.active; DB.save(); route(); toast(jj.name + (jj.active ? ' is active again.' : ' marked finished.'), function () { jj.active = !jj.active; DB.save(); route(); }); break;
-      case 'rem': var pr = person(t.dataset.id); pr.reminder = !pr.reminder; DB.save(); route(); break;
+      case 'jobstate': var jj = job(t.dataset.num); jj.active = !jj.active; DB.save(); route(); sync(LIVE.on && LIVE.updateJob(jj)); toast(jj.name + (jj.active ? ' is active again.' : ' marked finished.'), function () { jj.active = !jj.active; DB.save(); route(); sync(LIVE.on && LIVE.updateJob(jj)); }); break;
+      case 'rem': var pr = person(t.dataset.id); pr.reminder = !pr.reminder; DB.save(); route(); sync(LIVE.on && LIVE.savePerson(pr)); break;
     }
   });
   document.addEventListener('focusout', function (ev) { if (ev.target.dataset && ev.target.dataset.fil === 'q') setTimeout(function () { var sg = document.getElementById('sugg'); if (sg && !sg.contains(document.activeElement)) sg.classList.remove('open'); }, 150); });
@@ -703,7 +739,7 @@
           if (vids >= MAXV) { msgs.push('Up to ' + MAXV + ' videos per report.'); URL.revokeObjectURL(url); return res(null); }
           vids++;
           var v = document.createElement('video'), done = false; v.muted = true; v.playsInline = true; v.preload = 'auto';
-          var finish = function (thumb) { if (done) return; done = true; var key = 'v' + Date.now() + Math.random().toString(36).slice(2, 6); VIDS[key] = url; res({ v: 1, key: key, thumb: thumb || null, dur: v.duration || 0, name: f.name, size: f.size }); };
+          var finish = function (thumb) { if (done) return; done = true; var key = 'v' + Date.now() + Math.random().toString(36).slice(2, 6); VIDS[key] = url; var item = { v: 1, key: key, thumb: thumb || null, dur: v.duration || 0, name: f.name, size: f.size }; if (!LIVE.on) return res(item); LIVE.blobs.put(key, f).then(function () { res(item); }, function () { msgs.push('This phone is out of space for “' + f.name + '”.'); res(null); }); };
           v.onloadedmetadata = function () { if (v.duration > MAXVSEC + 1) { done = true; vids--; msgs.push('“' + f.name + '” is ' + mmss(v.duration) + '. Videos can be up to 3 minutes.'); URL.revokeObjectURL(url); return res(null); } try { v.currentTime = Math.min(0.5, v.duration / 2); } catch (e) { finish(null); } };
           v.onseeked = function () { try { var sc = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight)), c = document.createElement('canvas'); c.width = Math.round(v.videoWidth * sc); c.height = Math.round(v.videoHeight * sc); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height); finish(c.toDataURL('image/jpeg', 0.7)); } catch (e) { finish(null); } };
           v.onerror = function () { finish(null); };
@@ -711,7 +747,15 @@
           v.src = url; return;
         }
         var img = new Image();
-        img.onload = function () { var s2 = Math.min(1, 640 / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * s2); c.height = Math.round(img.height * s2); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', 0.72)); };
+        img.onload = function () {
+          var s2 = Math.min(1, 640 / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * s2); c.height = Math.round(img.height * s2); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          var thumb = c.toDataURL('image/jpeg', 0.72);
+          if (!LIVE.on) { URL.revokeObjectURL(url); return res(thumb); }
+          // Live: a full-size copy (up to 2560px) is kept on the phone until the report is sent.
+          var s3 = Math.min(1, 2560 / Math.max(img.width, img.height)), c2 = document.createElement('canvas'); c2.width = Math.round(img.width * s3); c2.height = Math.round(img.height * s3); c2.getContext('2d').drawImage(img, 0, 0, c2.width, c2.height);
+          URL.revokeObjectURL(url);
+          c2.toBlob(function (b) { var key = 'p' + Date.now() + Math.random().toString(36).slice(2, 6); LIVE.blobs.put(key, b || f).then(function () { res({ key: key, thumb: thumb, name: f.name }); }, function () { msgs.push('This phone is out of space for more photos.'); res(null); }); }, 'image/jpeg', 0.86);
+        };
         img.onerror = function () { res(null); }; img.src = url;
       });
     });
@@ -719,5 +763,6 @@
   }
 
 
-  route();
+  window.APP = { route: route, toast: toast, go: go };
+  if (LIVE.on) LIVE.start(); else route();
 })();

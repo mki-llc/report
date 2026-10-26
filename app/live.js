@@ -196,8 +196,10 @@
       DB.save();
       LIVE.ready = true;
       var h = location.hash.replace(/^#\/?/, '');
-      if (s.role === 'office' && (!h || h === 'signin')) location.hash = '#/office';
-      else if (h === 'signin' || (s.role !== 'office' && /^office/.test(h))) location.hash = '#/';
+      // After Microsoft sends you back, the address can hold sign-in leftovers, so anything that isn't a screen goes home.
+      var known = /^(office|report|sent)/.test(h);
+      if (s.role === 'office' && !known) location.hash = '#/office';
+      else if (!known || (s.role !== 'office' && /^office/.test(h))) location.hash = '#/';
       window.APP.route();
     });
   }

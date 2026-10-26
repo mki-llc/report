@@ -52,7 +52,13 @@
   }
   function isWide() { return window.matchMedia('(min-width:700px)').matches; }
 
-  var MAXP = 30; // photos per report
+  var MAXP = 30, MAXV = 5, MAXVSEC = 180; // photos+videos per report, videos per report, seconds per video
+  var VIDS = {}; // video files picked in this session (preview only keeps a still frame after reload)
+  function isVid(p) { return !!p && typeof p === 'object'; }
+  function thumbOf(p) { return isVid(p) ? p.thumb : p; }
+  function mmss(sec) { sec = Math.round(sec || 0); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
+  function playBadge(p, sm) { return isVid(p) ? '<span class="vbadge' + (sm ? ' sm' : '') + '">' + I('play', sm ? 10 : 12, '#fff') + (sm ? '' : mmss(p.dur)) + '</span>' : ''; }
+  function mediaCount(arr) { var v = (arr || []).filter(isVid).length, ph = (arr || []).length - v; return (ph ? ph + (ph === 1 ? ' photo' : ' photos') : '') + (ph && v ? ' · ' : '') + (v ? v + (v === 1 ? ' video' : ' videos') : '') || 'None'; }
   /* ---------------- draft ---------------- */
   function newDraft() { return { date: todayKey(), day: todayKey(), job: null, work: [''], mat: { yes: null, text: '' }, delay: { yes: null, text: '' }, safety: { yes: null, text: '' }, plan: [''], photos: [], weather: null, errors: null }; }
   function items(x) { return (Array.isArray(x) ? x : [x || '']).map(function (t) { return String(t || '').trim(); }).filter(Boolean); }
@@ -144,10 +150,12 @@
       (e[key] ? emsg(e[key]) : '') + '</section>';
   }
   function photosCard(d) {
-    var tiles = d.photos.map(function (p, i) { return '<div class="tile" style="background-image:url(' + p + ')"><button class="tile-open" data-act="viewer" data-id="draft" data-i="' + i + '" aria-label="Open photo ' + (i + 1) + '"></button><button class="rm" data-act="rmphoto" data-i="' + i + '" aria-label="Remove photo">' + I('x', 14, '#fff') + '</button></div>'; }).join('');
-    return '<section class="card" id="q-photos"><div class="ph-h">' + qLabel(8, 'PHOTOS') + '<span class="help" style="font-weight:500">' + d.photos.length + ' of ' + MAXP + ' · optional</span></div>' +
-      '<div class="grid">' + tiles + (d.photos.length < MAXP ? '<label class="addt">' + I('camera', 24) + 'Add<input type="file" accept="image/*" multiple class="sr" data-act="photos"></label>' : '') + '</div></section>';
+    var tiles = d.photos.map(function (p, i) { var th = thumbOf(p); return '<div class="tile"' + (th ? ' style="background-image:url(' + th + ')"' : '') + '><button class="tile-open" data-act="viewer" data-id="draft" data-i="' + i + '" aria-label="Open ' + (isVid(p) ? 'video' : 'photo') + ' ' + (i + 1) + '"></button>' + playBadge(p) + '<button class="rm" data-act="rmphoto" data-i="' + i + '" aria-label="Remove ' + (isVid(p) ? 'video' : 'photo') + '">' + I('x', 14, '#fff') + '</button></div>'; }).join('');
+    return '<section class="card" id="q-photos"><div class="ph-h">' + qLabel(8, 'PHOTOS AND VIDEOS') + '<span class="help" style="font-weight:500">' + d.photos.length + ' of ' + MAXP + ' · optional</span></div>' +
+      '<div class="grid">' + tiles + (d.photos.length < MAXP ? '<label class="addt">' + I('camera', 24) + 'Add<input type="file" accept="image/*,video/*" multiple class="sr" data-act="photos"></label>' : '') + '</div>' +
+      '<div class="help">Videos can be up to 3 minutes each, ' + MAXV + ' per report.</div></section>';
   }
+
   function dayLabel(k) { var diff = Math.round((dObj(todayKey()) - dObj(k)) / 864e5); var long = wd(k) + ', ' + dObj(k).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); return diff === 0 ? 'Today · ' + long : diff === 1 ? 'Yesterday · ' + long : long; }
   function dateCard(d, e) {
     var late = d.day !== todayKey();
@@ -254,7 +262,7 @@
     var now = new Date(), s = S();
     var id = 'r' + now.getTime();
     var rep = { id: id, date: d.day, sentDate: todayKey(), person: s.me, job: d.job.num || ('new:' + d.job.name), jobName: d.job.num ? null : d.job.name, sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
-      weather: d.day === todayKey() ? (d.weather || '') : '', work: items(d.work), mat: { yes: d.mat.yes, text: d.mat.yes ? d.mat.text.trim() : '' }, delay: { yes: d.delay.yes, text: d.delay.yes ? d.delay.text.trim() : '' }, safety: { yes: d.safety.yes, text: d.safety.yes ? d.safety.text.trim() : '' }, plan: items(d.plan), photos: d.photos.length, photoData: d.photos.slice(0, MAXP) };
+      weather: d.day === todayKey() ? (d.weather || '') : '', work: items(d.work), mat: { yes: d.mat.yes, text: d.mat.yes ? d.mat.text.trim() : '' }, delay: { yes: d.delay.yes, text: d.delay.yes ? d.delay.text.trim() : '' }, safety: { yes: d.safety.yes, text: d.safety.yes ? d.safety.text.trim() : '' }, plan: items(d.plan), photos: d.photos.length, videos: d.photos.filter(isVid).length, photoData: d.photos.slice(0, MAXP) };
     if (d.job.requested) s.requests.push({ id: 'q' + now.getTime(), name: d.job.name, by: s.me, date: todayKey(), note: d.job.addr || '' });
     s.reports.unshift(rep);
     s.draft = null;
@@ -370,7 +378,7 @@
     if (id === 'draft') { pics = D().photos; n = pics.length; }
     else { var r = S().reports.filter(function (x) { return x.id === id; })[0]; if (!r) return; pics = r.photoData || []; n = r.photos; }
     V = { pics: pics, n: n, i: +i || 0, s: 1, x: 0, y: 0 };
-    var thumbs = ''; for (var k = 0; k < n; k++) thumbs += '<button class="vth" data-act="vgo" data-i="' + k + '" aria-label="Photo ' + (k + 1) + '"' + (pics[k] ? ' style="background-image:url(' + pics[k] + ')"' : '') + '>' + (pics[k] ? '' : I('image', 14, '#fff')) + '</button>';
+    var thumbs = ''; for (var k = 0; k < n; k++) thumbs += '<button class="vth" data-act="vgo" data-i="' + k + '" aria-label="Item ' + (k + 1) + '"' + (thumbOf(pics[k]) ? ' style="background-image:url(' + thumbOf(pics[k]) + ')"' : '') + '>' + (thumbOf(pics[k]) ? '' : I(isVid(pics[k]) ? 'play' : 'image', 14, '#fff')) + playBadge(pics[k], true) + '</button>';
     openLayer('<div class="viewer" role="dialog" aria-modal="true" aria-label="Photos"><div class="vbar"><span class="vcount" id="vcount"></span><button class="vbtn" data-act="close" aria-label="Close">' + I('x', 24, '#fff') + '</button></div>' +
       '<div class="vstage" id="vstage"><div class="vimg" id="vimg"></div>' + (n > 1 ? '<button class="vnav prev" data-act="vprev" aria-label="Previous photo">' + I('chevron-left', 28, '#fff') + '</button><button class="vnav next" data-act="vnext" aria-label="Next photo">' + I('chevron-right', 28, '#fff') + '</button>' : '') + '</div>' +
       '<div class="vhint">Pinch or double-tap to zoom</div>' + (n > 1 ? '<div class="vthumbs" id="vthumbs">' + thumbs + '</div>' : '') + '</div>');
@@ -380,7 +388,10 @@
   function vShow() {
     var el = document.getElementById('vimg'), p = V.pics[V.i];
     V.s = 1; V.x = 0; V.y = 0; vApply(false);
-    el.innerHTML = p ? '<img src="' + p + '" alt="Photo ' + (V.i + 1) + '" draggable="false">' : '<div class="vph">' + I('image', 56, '#fff') + '<span>Sample photo</span></div>';
+    var old = document.querySelector('.vimg video'); if (old) old.pause();
+    if (isVid(p)) el.innerHTML = VIDS[p.key] ? '<video src="' + VIDS[p.key] + '" controls playsinline' + (p.thumb ? ' poster="' + p.thumb + '"' : '') + '></video>' : '<div class="vph"' + (p.thumb ? ' style="background:url(' + p.thumb + ') center/cover"' : '') + '><span class="vnote">' + I('play', 28, '#fff') + 'Video · ' + mmss(p.dur) + '<br>In the real app it plays from SharePoint</span></div>';
+    else el.innerHTML = p ? '<img src="' + p + '" alt="Photo ' + (V.i + 1) + '" draggable="false">' : '<div class="vph">' + I('image', 56, '#fff') + '<span>Sample photo</span></div>';
+    var hint = document.querySelector('.vhint'); if (hint) hint.textContent = isVid(p) ? 'Swipe for the next one' : 'Pinch or double-tap to zoom';
     document.getElementById('vcount').textContent = (V.i + 1) + ' of ' + V.n;
     var th = document.querySelectorAll('.vth'); for (var k = 0; k < th.length; k++) th[k].classList.toggle('on', k === V.i);
     var cur = th[V.i]; if (cur) cur.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -388,17 +399,19 @@
   function vGo(k) { if (!V) return; V.i = (k + V.n) % V.n; vShow(); }
   function vClamp() { var st = document.getElementById('vstage').getBoundingClientRect(), mx = st.width * (V.s - 1) / 2, my = st.height * (V.s - 1) / 2; V.x = Math.max(-mx, Math.min(mx, V.x)); V.y = Math.max(-my, Math.min(my, V.y)); }
   function vZoomAt(cx, cy, to) {
+    if (isVid(V.pics[V.i])) return;
     var st = document.getElementById('vstage').getBoundingClientRect(), ox = cx - (st.left + st.width / 2), oy = cy - (st.top + st.height / 2);
     var k = to / V.s; V.x = ox - (ox - V.x) * k; V.y = oy - (oy - V.y) * k; V.s = to; if (V.s <= 1.01) { V.s = 1; V.x = 0; V.y = 0; } vClamp(); vApply(true);
   }
   function vBind() {
     var st = document.getElementById('vstage'), t0 = null, last = 0, pinch = null, moved = false;
     st.addEventListener('touchstart', function (e) {
-      if (e.target.closest('.vnav')) return;
+      if (e.target.closest('.vnav') || e.target.tagName === 'VIDEO') { t0 = null; return; }
       if (e.touches.length === 2) { var a = e.touches[0], b = e.touches[1]; pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), s: V.s, cx: (a.clientX + b.clientX) / 2, cy: (a.clientY + b.clientY) / 2 }; t0 = null; return; }
       var t = e.touches[0]; t0 = { x: t.clientX, y: t.clientY, vx: V.x, vy: V.y, time: Date.now() }; moved = false;
     }, { passive: true });
     st.addEventListener('touchmove', function (e) {
+      if (!t0 && !pinch) return;
       e.preventDefault();
       if (pinch && e.touches.length === 2) { var a = e.touches[0], b = e.touches[1], d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); var ns = Math.max(1, Math.min(5, pinch.s * d / pinch.d)); vZoomAt(pinch.cx, pinch.cy, ns); document.getElementById('vimg').style.transition = 'none'; return; }
       if (!t0) return; var t = e.touches[0], dx = t.clientX - t0.x, dy = t.clientY - t0.y; if (Math.abs(dx) > 6 || Math.abs(dy) > 6) moved = true;
@@ -414,7 +427,7 @@
       t0 = null;
     });
     // mouse: click to zoom in or out, drag to move when zoomed
-    st.addEventListener('mousedown', function (e) { if (e.target.closest('.vnav') || Date.now() - vTouchAt < 800) return; vDrag = { x: e.clientX, y: e.clientY, vx: V.x, vy: V.y, moved: false }; });
+    st.addEventListener('mousedown', function (e) { if (e.target.closest('.vnav') || e.target.tagName === 'VIDEO' || Date.now() - vTouchAt < 800) return; vDrag = { x: e.clientX, y: e.clientY, vx: V.x, vy: V.y, moved: false }; });
     st.addEventListener('wheel', function (e) { e.preventDefault(); vZoomAt(e.clientX, e.clientY, Math.max(1, Math.min(5, V.s * (e.deltaY < 0 ? 1.15 : 0.87)))); }, { passive: false });
   }
   var vDrag = null, vTouchAt = 0;
@@ -435,7 +448,7 @@
   function dd(name, val, opts) { return '<label class="dd"><select aria-label="' + esc(opts[0][1]) + '" data-fil="' + name + '">' + opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 16) + '</label>'; }
   function jobOpts(all) { return [['', all]].concat(S().jobs.filter(function (j) { return j.active || j.num === F.job; }).sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (j) { return [j.num, j.name]; })); }
   function whoOpts(all) { return [['', all]].concat(S().people.map(function (p) { return [p.id, p.name]; })); }
-  function thumbs(r) { var n = r.photos, a = ''; for (var i = 0; i < Math.min(n, 3); i++) a += r.photoData && r.photoData[i] ? '<span class="th36" style="background:url(' + r.photoData[i] + ') center/cover"></span>' : '<span class="th36">' + I('image', 14, '#fff') + '</span>'; if (n > 3) a += '<span class="mut" style="font:600 13px var(--in)">+' + (n - 3) + '</span>'; if (!n) a = '<span class="mut">None</span>'; return '<div class="thumbs">' + a + '</div>'; }
+  function thumbs(r) { var n = r.photos, a = ''; for (var i = 0; i < Math.min(n, 3); i++) a += r.photoData && thumbOf(r.photoData[i]) ? '<span class="th36" style="background:url(' + thumbOf(r.photoData[i]) + ') center/cover">' + playBadge(r.photoData[i], true) + '</span>' : '<span class="th36">' + I(r.photoData && isVid(r.photoData[i]) ? 'play' : 'image', 14, '#fff') + '</span>'; if (n > 3) a += '<span class="mut" style="font:600 13px var(--in)">+' + (n - 3) + '</span>'; if (!n) a = '<span class="mut">None</span>'; return '<div class="thumbs">' + a + '</div>'; }
   function repRows(list, cols) {
     return list.map(function (r) {
       var p = person(r.person);
@@ -519,21 +532,21 @@
     var pics = r.photoData && r.photoData.length ? r.photoData : null;
     function ph(i, cls) {
       var more = i === 2 && r.photos > 3 ? '<span class="more">+' + (r.photos - 3) + '</span>' : '';
-      var inner = pics && pics[i] ? '' : I('image', cls === 'big' ? 32 : 24, '#fff');
-      return '<button class="ptile ' + cls + '" data-act="viewer" data-id="' + r.id + '" data-i="' + i + '" aria-label="Open photo ' + (i + 1) + ' of ' + r.photos + '"' + (pics && pics[i] ? ' style="background:url(' + pics[i] + ') center/cover"' : '') + '>' + inner + more + '</button>';
+      var it = pics && pics[i], th = thumbOf(it), inner = th ? '' : I(isVid(it) ? 'play' : 'image', cls === 'big' ? 32 : 24, '#fff');
+      return '<button class="ptile ' + cls + '" data-act="viewer" data-id="' + r.id + '" data-i="' + i + '" aria-label="Open item ' + (i + 1) + ' of ' + r.photos + '"' + (th ? ' style="background:url(' + th + ') center/cover"' : '') + '>' + inner + playBadge(it) + more + '</button>';
     }
     return '<a class="back" href="#/office/reports">' + I('chevron-left', 18) + 'All reports</a>' +
       '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + (late ? shortDate(r.sentDate) + ' ' : '') + sentText(r) + '</p></div><div class="filters"><button class="obtn tertiary" data-act="soon">' + I('folder', 18) + 'Open job folder</button><button class="obtn secondary" data-act="soon">' + I('file-text', 18) + 'Download PDF</button></div></div>' +
       '<div class="dbody"><div class="dl-col"><div class="facts">' +
-      '<div class="fact"><div class="l">WEATHER</div><div class="v">' + esc(r.weather ? r.weather.split(',').slice(-1)[0].trim() : '—') + '</div><div class="s">' + esc(r.weather ? r.weather.split(',')[0] : 'From weather records') + '</div></div>' +
-      '<div class="fact"><div class="l">PHOTOS</div><div class="v">' + r.photos + '</div><div class="s">' + (r.photos ? 'Tap one to open it' : 'None sent') + '</div></div>' +
+      '<div class="fact"><div class="l">WEATHER</div><div class="v">' + esc(/-?\d+°/.test(r.weather || '') ? r.weather.match(/-?\d+°/)[0] : '—') + '</div><div class="s">' + esc(r.weather ? r.weather.split(',')[0] : 'From weather records') + '</div></div>' +
+      '<div class="fact"><div class="l">PHOTOS & VIDEOS</div><div class="v">' + r.photos + '</div><div class="s">' + (r.videos ? mediaCount(r.photoData && r.photoData.length === r.photos ? r.photoData : []) || (r.videos + ' video') : r.photos ? 'Tap one to open it' : 'None sent') + '</div></div>' +
       '<div class="fact"><div class="l">SENT</div><div class="v">' + sentText(r) + '</div><div class="s">' + (late ? 'Late · on ' + shortDate(r.sentDate) : 'Same day') + '</div></div></div>' +
       list('Work completed today', r.work) +
       blk('Materials, equipment, or inspections', r.mat.yes ? r.mat.text : '', r.mat.yes ? pill('Needs materials', 'warn') : pill('Nothing needed', 'ok')) +
       blk('Weather, site, or other-trade delays', r.delay.yes ? r.delay.text : '', r.delay.yes ? pill('Delay', 'warn') : pill('No delays', 'ok')) +
       blk('Safety or quality issues', r.safety.yes ? r.safety.text : '', r.safety.yes ? pill('Safety issue', 'err') : pill('No incidents', 'ok')) +
       list('Plan for next workday', r.plan) + '</div>' +
-      '<div class="pbox"><div class="toprow"><span class="blk" style="padding:0"><span class="l">PHOTOS · ' + r.photos + '</span></span>' + (r.photos ? '<button class="obtn link" data-act="soon">Download all</button>' : '') + '</div>' +
+      '<div class="pbox"><div class="toprow"><span class="blk" style="padding:0"><span class="l">PHOTOS & VIDEOS · ' + r.photos + '</span></span>' + (r.photos ? '<button class="obtn link" data-act="soon">Download all</button>' : '') + '</div>' +
       (r.photos ? ph(0, 'big') + (r.photos > 1 ? '<div class="two">' + ph(1, '') + (r.photos > 2 ? ph(2, '') : '<div style="background:none"></div>') + '</div>' : '') + '<div class="ofoot">Tap a photo to open it full size</div>' : '<div class="ofoot">No photos with this report.</div>') + '</div></div>';
   }
 
@@ -682,16 +695,29 @@
 
   /* Photos are shrunk on the phone before saving, so reports stay small. */
   function addPhotos(files) {
-    var d = D(), list = Array.prototype.slice.call(files, 0, MAXP - d.photos.length);
+    var d = D(), list = Array.prototype.slice.call(files, 0, MAXP - d.photos.length), vids = d.photos.filter(isVid).length, msgs = [];
     var jobs = list.map(function (f) {
       return new Promise(function (res) {
-        var img = new Image(), url = URL.createObjectURL(f);
-        img.onload = function () { var s = Math.min(1, 640 / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', 0.72)); };
+        var url = URL.createObjectURL(f);
+        if (/^video\//.test(f.type)) {
+          if (vids >= MAXV) { msgs.push('Up to ' + MAXV + ' videos per report.'); URL.revokeObjectURL(url); return res(null); }
+          vids++;
+          var v = document.createElement('video'), done = false; v.muted = true; v.playsInline = true; v.preload = 'auto';
+          var finish = function (thumb) { if (done) return; done = true; var key = 'v' + Date.now() + Math.random().toString(36).slice(2, 6); VIDS[key] = url; res({ v: 1, key: key, thumb: thumb || null, dur: v.duration || 0, name: f.name, size: f.size }); };
+          v.onloadedmetadata = function () { if (v.duration > MAXVSEC + 1) { done = true; vids--; msgs.push('“' + f.name + '” is ' + mmss(v.duration) + '. Videos can be up to 3 minutes.'); URL.revokeObjectURL(url); return res(null); } try { v.currentTime = Math.min(0.5, v.duration / 2); } catch (e) { finish(null); } };
+          v.onseeked = function () { try { var sc = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight)), c = document.createElement('canvas'); c.width = Math.round(v.videoWidth * sc); c.height = Math.round(v.videoHeight * sc); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height); finish(c.toDataURL('image/jpeg', 0.7)); } catch (e) { finish(null); } };
+          v.onerror = function () { finish(null); };
+          setTimeout(function () { finish(null); }, 4000);
+          v.src = url; return;
+        }
+        var img = new Image();
+        img.onload = function () { var s2 = Math.min(1, 640 / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = Math.round(img.width * s2); c.height = Math.round(img.height * s2); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg', 0.72)); };
         img.onerror = function () { res(null); }; img.src = url;
       });
     });
-    Promise.all(jobs).then(function (urls) { urls.forEach(function (u) { if (u) d.photos.push(u); }); saveSoon(); refresh('q-photos'); });
+    Promise.all(jobs).then(function (urls) { urls.forEach(function (u) { if (u) d.photos.push(u); }); saveSoon(); refresh('q-photos'); if (msgs.length) toast(msgs[0]); });
   }
+
 
   route();
 })();

@@ -478,3 +478,13 @@ textarea.li{min-height:52px;flex:1;padding:13px 14px}
 .jrow span .ic{display:inline-block;vertical-align:-2px}
 @media (max-width:1023px){.olist{font-size:14px}}
 @media (min-width:700px){.pair{align-items:stretch}.pair>.card{height:100%}}
+
+/* Videos */
+.vbadge{position:absolute;left:6px;bottom:6px;display:inline-flex;align-items:center;gap:4px;background:rgba(30,27,27,.78);color:#fff;border-radius:999px;padding:3px 8px 3px 6px;font:600 11px var(--in);pointer-events:none}
+.vbadge.sm{left:3px;bottom:3px;padding:2px 3px}
+.vbadge .ic{fill:#fff}
+.th36,.vth{position:relative}
+.ptile .vbadge{left:10px;bottom:10px;font-size:13px;padding:5px 10px 5px 8px}
+.tile{background-color:#2a2626}
+.vimg video{max-width:100%;max-height:100%;background:#000}
+.vph .vnote{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;background:rgba(0,0,0,.55);padding:14px 18px;border-radius:12px;color:#fff;font:500 14px/1.4 var(--in)}

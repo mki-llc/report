@@ -201,8 +201,42 @@
       if (s.role === 'office' && !known) location.hash = '#/office';
       else if (!known || (s.role !== 'office' && /^office/.test(h))) location.hash = '#/';
       window.APP.route();
+      if (s.role === 'office') startAutoRefresh();
     });
   }
+  // Office screens check SharePoint for new reports about once a minute while the page is open,
+  // and right away when you come back to the tab, so nobody has to hit refresh.
+  var refreshing = false, timer = null;
+  function startAutoRefresh() {
+    if (timer) return;
+    timer = setInterval(function () { if (!document.hidden) refresh(); }, 45000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
+    window.addEventListener('focus', function () { refresh(); });
+  }
+  function refresh() {
+    if (refreshing || !LIVE.ready) return;
+    refreshing = true;
+    var sel = '/items?$expand=fields&$top=500';
+    Promise.all([getAll(listPath(L.reports) + sel), getAll(listPath(L.jobs) + sel)]).then(function (r) {
+      var s = DB.state, old = {}, fresh = r[0].map(toRep).filter(function (x) { return x.date; });
+      s.reports.forEach(function (x) { old[x.id] = x; });
+      var added = fresh.filter(function (x) { return !old[x.id]; });
+      var changed = added.length || fresh.length !== s.reports.length || fresh.some(function (x) { var o = old[x.id]; return o && (o.job !== x.job || o.mediaFolder !== x.mediaFolder || o.photos !== x.photos); });
+      var jobs = r[1].map(function (it) { var f = it.fields; return { itemId: it.id, num: f.Title, name: f.JobName || f.Title, active: f.Active !== false, foreman: f.Foreman || null, address: f.Address || '' }; }).filter(function (j) { return j.num; });
+      var jobsChanged = JSON.stringify(jobs) !== JSON.stringify(s.jobs);
+      if (!changed && !jobsChanged) return;
+      fresh.forEach(function (x) { var o = old[x.id]; if (o && o.photoData && o.mediaFolder === x.mediaFolder) x.photoData = o.photoData; });
+      s.reports = fresh; s.jobs = jobs;
+      fresh.forEach(function (rep) { if (!s.people.some(function (p) { return p.id === rep.person; })) s.people.push(mkPerson(rep.person, rep.personName, { extra: true })); });
+      LIVE.requests();
+      // Redraw only when it won't interrupt: no tray or photo open, and nobody typing.
+      var a = document.activeElement, typing = a && /INPUT|TEXTAREA|SELECT/.test(a.tagName);
+      var layerOpen = !!document.getElementById('layer').firstChild;
+      if (/^#\/office/.test(location.hash) && !typing && !layerOpen) { var y = window.scrollY; window.APP.route(); window.scrollTo(0, y); }
+      if (added.length) window.APP.toast(added.length === 1 ? 'New report from ' + (added[0].personName || 'a foreman') + '.' : added.length + ' new reports.');
+    }).catch(function (e) { console.warn('refresh', e); }).then(function () { refreshing = false; });
+  }
+  LIVE.refresh = refresh;
   // Jobs a foreman typed in that aren't on the list yet. They wait on the Jobs page for the office.
   LIVE.requests = function () {
     var s = DB.state, seen = {};

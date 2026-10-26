@@ -105,7 +105,7 @@
   });
 
   function previewBar(active) {
-    if (LIVE.on) return S().role === 'office' ? '<nav class="pv" aria-label="View"><span class="pvl">VIEW</span><a href="#/" class="' + (active === 'f' ? 'on' : '') + '">Foreman</a><a href="#/office" class="' + (active === 'o' ? 'on' : '') + '">Office</a></nav>' : '';
+    if (LIVE.on) return ''; // live: no strip. Office people switch with "Send a report" in the menu and "Back to office" on the start screen.
     return '<nav class="pv" aria-label="Preview"><span class="pvl">PREVIEW</span><a href="#/" class="' + (active === 'f' ? 'on' : '') + '">Foreman</a><a href="#/office" class="' + (active === 'o' ? 'on' : '') + '">Office</a></nav>';
   }
 
@@ -116,7 +116,7 @@
     $app.innerHTML = previewBar('f') + '<main class="dark start"><div class="top"><img class="logo" src="' + LOGO + '" alt="MKI LLC"><div class="tag">END OF DAY REPORT</div><p class="weekday">' + wd(k).toUpperCase() + '</p><p class="date">' + md(k).toUpperCase() + '</p></div>' +
       '<div class="bottom"><button class="go" data-act="start">' + (already ? 'SEND ANOTHER REPORT' : "START TODAY'S REPORT") + ' ' + I('arrow-right', 22, '#990000') + '</button>' +
       '<p class="hint">' + (already ? 'You already sent one today for ' + esc(jobName(already)) + '. Send another only if you worked a second job.' : 'Takes about 3 minutes. Tap the microphone on your keyboard to talk instead of typing.') + '</p>' +
-      '<p class="who">Signed in as ' + esc(me.name) + '. <button data-act="signout">Not you?</button></p></div></main>';
+      '<p class="who">Signed in as ' + esc(me.name) + '. <button data-act="signout">Not you?</button></p>' + (LIVE.on && S().role === 'office' ? '<p class="who"><a href="#/office" class="u" style="color:inherit">Back to office</a></p>' : '') + '</div></main>';
   }
 
   /* ---------------- foreman: sign in ---------------- */
@@ -474,7 +474,8 @@
     var reqs = S().requests.length;
     var side = '<aside class="side"><img class="logo" src="' + LOGO + '" alt="MKI LLC">' + NAV.map(function (n) { return '<a class="nav' + (n[0] === active ? ' on' : '') + '" href="' + n[3] + '">' + I(n[2], 20) + n[1] + (n[0] === 'jobs' && reqs ? '<span class="badge">' + reqs + '</span>' : '') + '</a>'; }).join('') +
       (LIVE.on ? (function () { var m = person(S().me); return '<div class="me"><div class="av" style="background:#5A2A2A">' + esc(m.ini) + '</div><div><b>' + esc(m.name) + '</b><span>' + esc(m.role || 'Office') + ' · <button class="u" style="color:inherit;font:inherit" data-act="signout">Sign out</button></span></div></div>'; })() : '<div class="me"><div class="av" style="background:#5A2A2A">AK</div><div><b>Alex Kovalev</b><span>Owner</span></div></div>') + '</aside>';
-    var tabs = '<nav class="tabs">' + NAV.map(function (n) { return '<a class="' + (n[0] === active ? 'on' : '') + '" href="' + n[3] + '">' + I(n[2], 22) + (n[0] === 'reports' ? 'Reports' : n[1]) + '</a>'; }).join('') + '</nav>';
+    if (LIVE.on) side = side.replace('<div class="me">', '<a class="nav send" href="#/">' + I('file-text', 20) + 'Send a report</a><div class="me">');
+    var tabs = '<nav class="tabs">' + (LIVE.on ? NAV.concat([['send', 'Report', 'file-text', '#/']]) : NAV).map(function (n) { return '<a class="' + (n[0] === active ? 'on' : '') + '" href="' + n[3] + '">' + I(n[2], 22) + (n[0] === 'reports' ? 'Reports' : n[1]) + '</a>'; }).join('') + '</nav>';
     $app.innerHTML = previewBar('o') + '<div class="of">' + side + '<main class="main">' + fn() + '</main></div>' + tabs;
   }
   var F = { job: '', who: '', range: '7', flag: '', q: '', chips: {}, more: 9, jobsShow: 'active', jq: '' };
@@ -764,5 +765,5 @@
 
 
   window.APP = { route: route, toast: toast, go: go };
-  if (LIVE.on) LIVE.start(); else route();
+  if (LIVE.on) { document.body.classList.add('live'); LIVE.start(); } else route();
 })();

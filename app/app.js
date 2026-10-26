@@ -221,7 +221,7 @@
     var nErr = Object.keys(e).length;
     var wx = wxText(d);
     var wide = isWide();
-    var head = '<header class="fh"><div class="row"><div><img class="logo" src="' + LOGO + '" alt="MKI LLC"><div class="wd">' + wd(k).toUpperCase() + '</div><div class="dt">' + md(k).toUpperCase() + '</div></div><div class="name">' + esc(me.short) + '</div></div></header>';
+    var head = '<header class="fh"><img class="logo" src="' + LOGO + '" alt="MKI LLC"><div class="name">' + esc(me.short) + '</div><div class="wd">' + wd(k).toUpperCase() + '</div><div class="dt">' + md(k).toUpperCase() + '</div></header>';
     var work = CARD['q-work'](d, e), mat = CARD['q-mat'](d, e), delay = CARD['q-delay'](d, e), safety = CARD['q-safety'](d, e), plan = CARD['q-plan'](d, e);
     var body = (nErr ? '<div class="banner" id="banner">' + I('alert-circle', 20) + (nErr === 1 ? '1 answer is missing. It’s marked below.' : nErr + ' answers are missing. They’re marked below.') + '</div>' : '') +
       '<div class="pair">' + dateCard(d, e) + jobCard(d, e) + '</div>' + '<div class="wx">' + I('sun', 16, '#6B6262') + wx + '</div>' +

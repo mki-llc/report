@@ -498,7 +498,7 @@
     var k = todayKey(), s = S(), reps = sorted().filter(function (r) { return (!F.job || r.job === F.job) && (!F.who || r.person === F.who); });
     var today = reps.filter(function (r) { return r.date === k; });
     var dow = dObj(k).getDay(), weekend = dow === 0 || dow === 6;
-    var expected = weekend ? [] : s.people.filter(function (p) { return p.reminder && (!F.who || p.id === F.who); });
+    var expected = weekend ? [] : s.people.filter(function (p) { return p.crew && p.reminder && (!F.who || p.id === F.who); });
     var sentIds = {}; today.forEach(function (r) { sentIds[r.person] = r; });
     var missing = expected.filter(function (p) { return !sentIds[p.id]; });
     var mats = today.filter(function (r) { return r.mat.yes; });
@@ -630,12 +630,13 @@
     var s = S(), k = todayKey(), mon = dObj(k); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
     var days = [0, 1, 2, 3, 4, 5, 6].map(function (i) { var d = new Date(mon); d.setDate(d.getDate() + i); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); });
     var sun = dObj(days[6]);
-    var rows = s.people.map(function (p) {
+    var since = LIVE.on ? LIVE.since : '';
+    var rows = s.people.filter(function (p) { return p.crew; }).map(function (p) {
       var cnt = 0, missedToday = false, missed = 0, worked = 0;
       var dots = days.map(function (dk, i) {
         var weekend = i > 4;
         var sent = s.reports.some(function (r) { return r.person === p.id && r.date === dk; });
-        if (dk > k) return '<td class="wkcell hide-m"><span class="dot"></span></td>';
+        if (dk > k || dk < since) return '<td class="wkcell hide-m"><span class="dot"></span></td>';
         if (sent) { worked++; cnt++; return '<td class="wkcell hide-m"><span class="dot ok">' + I('check', 16, '#067647') + '</span></td>'; }
         if (weekend || !p.reminder) { if (!weekend) worked++; return '<td class="wkcell hide-m"><span class="dot"></span></td>'; }
         worked++; missed++; if (dk === k) missedToday = true; return '<td class="wkcell hide-m"><span class="dot err">' + I('x', 14, '#D92D20') + '</span></td>';

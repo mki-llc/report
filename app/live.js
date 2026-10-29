@@ -1,5 +1,5 @@
 /* Live mode: Microsoft sign-in and the MKI Field Reports SharePoint site.
-   Turned on with ?live (remembered on this device). ?preview goes back to sample data. */
+   On by default. ?preview shows sample data for one browser session. */
 (function () {
   'use strict';
   var DB = window.DB;
@@ -19,7 +19,10 @@
   var REDIRECT = /github\.io$/.test(location.hostname) ? 'https://mki-llc.github.io/report/app/' : location.origin + location.pathname;
   var OFFICE_TITLES = /owner|president|ceo|project manager|operations|office|admin|estimat|account/i;
 
-  var LIVE = window.LIVE = { on: !!DB.live, ready: false };
+  // Who counts as field crew. Their names and titles come from Microsoft 365, so adding, renaming or
+  // removing someone in the admin center shows up here on the next load.
+  var FIELD_TITLES = /foreman|field supervisor|superintendent/i;
+  var LIVE = window.LIVE = { on: !!DB.live, ready: false, since: '2026-10-28', directory: false };
   if (!LIVE.on) return;
 
   var pca, account, me, site, drive, L = {}, jobsRoot = null, jobFolders = null;
@@ -192,6 +195,50 @@
       s.people.sort(function (a, b) { return (b.reminder - a.reminder) || a.name.localeCompare(b.name); });
       s.me = myEmail;
       s.role = OFFICE_TITLES.test(me.jobTitle || '') || OFFICE_TITLES.test(mine.role || '') ? 'office' : 'foreman';
+      s.people.forEach(function (p) { p.crew = !p.extra && FIELD_TITLES.test(p.role || ''); });
+      return (s.role === 'office' ? syncDirectory() : Promise.resolve()).then(function () { finishLoad(s); });
+    });
+  }
+  // Office only: read MKI's Microsoft 365 users and use them as the crew list. Needs the
+  // User.Read.All permission approved once for the organization. Without it the app keeps
+  // using its own SharePoint list, so nothing breaks.
+  function dirToken() {
+    return pca.acquireTokenSilent({ scopes: ['User.Read.All'], account: account }).then(function (r) { return r.accessToken; });
+  }
+  function syncDirectory() {
+    return dirToken().then(function (t) {
+      var out = [];
+      function page(u) {
+        return send(u, { headers: { Authorization: 'Bearer ' + t } }).then(handle).then(function (j) { out = out.concat(j.value || []); return j['@odata.nextLink'] ? page(j['@odata.nextLink']) : out; });
+      }
+      return page(G + '/users?$select=displayName,mail,userPrincipalName,jobTitle,accountEnabled&$top=999');
+    }).then(function (users) {
+      var s = DB.state, field = {};
+      users.forEach(function (u) {
+        var email = String(u.mail || u.userPrincipalName || '').toLowerCase();
+        if (email && u.accountEnabled !== false && FIELD_TITLES.test(u.jobTitle || '')) field[email] = u;
+      });
+      s.people.forEach(function (p) { p.crew = !!field[p.id]; });
+      Object.keys(field).forEach(function (email) {
+        var u = field[email], p = s.people.filter(function (x) { return x.id === email; })[0];
+        if (!p) {
+          p = mkPerson(email, u.displayName, { role: u.jobTitle, reminder: /foreman/i.test(u.jobTitle), crew: true });
+          s.people.push(p);
+          LIVE.savePerson(p).catch(function (e) { console.warn('save person', e); });
+        } else {
+          var nm = u.displayName || p.name;
+          if (nm !== p.name || u.jobTitle !== p.role) {
+            if (!p.itemId) p.reminder = /foreman/i.test(u.jobTitle);
+            p.name = nm; p.short = shortName(nm); p.first = nm.split(/\s+/)[0]; p.ini = initials(nm); p.role = u.jobTitle; p.extra = false;
+            LIVE.savePerson(p).catch(function (e) { console.warn('save person', e); });
+          }
+        }
+      });
+      LIVE.directory = true;
+    }).catch(function (e) { console.warn('Microsoft 365 user list not available yet, using the app list', e); LIVE.directory = false; });
+  }
+  function finishLoad(s) {
+      s.people.sort(function (a, b) { return (b.reminder - a.reminder) || a.name.localeCompare(b.name); });
       LIVE.requests();
       DB.save();
       LIVE.ready = true;
@@ -202,7 +249,6 @@
       else if (!known || (s.role !== 'office' && /^office/.test(h))) location.hash = '#/';
       window.APP.route();
       if (s.role === 'office') startAutoRefresh();
-    });
   }
   // Office screens check SharePoint for new reports about once a minute while the page is open,
   // and right away when you come back to the tab, so nobody has to hit refresh.

@@ -5,10 +5,10 @@
   var KEY = LIVE ? 'mki-live-v1' : 'mki-preview-v1';
 
   var PEOPLE = [
-    { id: 'agalindo', name: 'Abraham Galindo', short: 'Abraham G.', first: 'Abraham', ini: 'AG', email: 'agalindo@mkillc.com', role: 'Foreman', usualJob: '26-3007', reminder: true },
-    { id: 'bfogle', name: 'Brian Fogle', short: 'Brian F.', first: 'Brian', ini: 'BF', email: 'brian.fogle@mkillc.com', role: 'Foreman', usualJob: '26-3008', reminder: true },
-    { id: 'medwards', name: 'Matthew Edwards', short: 'Matthew E.', first: 'Matthew', ini: 'ME', email: 'matt@mkillc.com', role: 'Foreman', usualJob: '26-3005', reminder: true },
-    { id: 'aharbin', name: 'Andy Harbin', short: 'Andy H.', first: 'Andy', ini: 'AH', email: 'andy@mkillc.com', role: 'Field Supervisor', usualJob: null, reminder: false }
+    { id: 'agalindo', name: 'Abraham Galindo', short: 'Abraham G.', first: 'Abraham', ini: 'AG', email: 'agalindo@mkillc.com', role: 'Foreman', usualJob: '26-3007', reminder: true, crew: true },
+    { id: 'bfogle', name: 'Brian Fogle', short: 'Brian F.', first: 'Brian', ini: 'BF', email: 'brian.fogle@mkillc.com', role: 'Foreman', usualJob: '26-3008', reminder: true, crew: true },
+    { id: 'medwards', name: 'Matthew Edwards', short: 'Matthew E.', first: 'Matthew', ini: 'ME', email: 'matt@mkillc.com', role: 'Foreman', usualJob: '26-3005', reminder: true, crew: true },
+    { id: 'aharbin', name: 'Andy Harbin', short: 'Andy H.', first: 'Andy', ini: 'AH', email: 'andy@mkillc.com', role: 'Field Supervisor', usualJob: null, reminder: false, crew: true }
   ];
 
   var JOBS = [

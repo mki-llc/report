@@ -497,6 +497,7 @@
   LIVE.markOff = function (o) {
     return api('POST', listPath(L.reports) + '/items', { fields: { Title: o.id, ReportDate: o.date, SentDate: o.sentDate, SentAt: o.sentAt, PersonEmail: o.person, PersonName: o.personName, JobNumber: '', JobName: '', AppData: JSON.stringify({ v: 1, off: true }) } }).then(function (it) { o.itemId = it.id; return o; });
   };
+  LIVE.unmarkOff = function (o) { return api('DELETE', listPath(L.reports) + '/items/' + o.itemId); };
   LIVE.hasReviewColumn = function () { return !!cols.OfficeReview; };
   LIVE.markRecord = function (r, name) {
     r.recordPdf = name;

@@ -79,6 +79,8 @@ input,textarea,select{font:inherit;color:inherit}
 /* ---------- Foreman report ---------- */
 .fh{background:linear-gradient(180deg,var(--char) 0%,var(--red) 100%);color:#fff;padding:max(60px,calc(env(safe-area-inset-top) + 20px)) 24px 24px}
 .fh .logo{width:80px;height:33px;display:block}
+.fhtop{display:flex;align-items:center;justify-content:space-between}
+.fback{display:inline-flex;align-items:center;gap:2px;min-height:44px;padding:0 4px;font:600 15px var(--in);color:#fff;text-decoration:none;opacity:.9}
 .fh .wd{font:700 20px var(--bc);letter-spacing:.14em;color:rgba(255,255,255,.8);margin-top:40px}
 .fh .dt{font:800 44px/.95 var(--bc);margin:4px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ql{padding:14px;display:flex;flex-direction:column;gap:12px;max-width:834px;margin:0 auto}
@@ -472,7 +474,7 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 .tundo{color:#fff;font:700 14px var(--in);text-decoration:underline;text-underline-offset:3px;padding:6px 4px;flex:none}
 
 /* QA pass 2 */
-.select .v,.jrow b,.h1,.tbl td.job,.fm .t b,.fm .t span,.sent .sum b,.reqrow b,.blk p,.fact .v{overflow-wrap:anywhere}
+.select .v,.jrow b,.h1,.fm .t b,.fm .t span,.sent .sum b,.reqrow b,.blk p,.fact .v{overflow-wrap:anywhere}
 .blk p{white-space:pre-wrap}
 @media (min-width:1024px){.of{background:linear-gradient(90deg,#3A1414 0 248px,var(--bg) 248px)}}
 .tbl tr.click:focus-visible{outline:2px solid var(--char);outline-offset:-2px}
@@ -577,3 +579,15 @@ body.live .side{height:100vh;height:100dvh}
 .tbl.jobs tbody tr:last-child td:first-child{border-bottom-left-radius:16px}.tbl.jobs tbody tr:last-child td:last-child{border-bottom-right-radius:16px}
 .tbl.jobs{margin-bottom:120px}
 @media (max-width:1023px){.tbl.jobs tbody tr:last-child{border-radius:0 0 16px 16px}}
+
+/* Polish pass (Oct 29) */
+.tbl td.job{overflow-wrap:break-word}
+@media (min-width:1024px) and (max-width:1279px){.tbl.cards th:nth-child(5),.tbl.cards td:nth-child(5){display:none}}
+button.stat{text-align:left;position:relative;font:inherit;color:inherit}
+button.stat>svg:last-child{position:absolute;top:18px;right:14px}
+@media (hover:hover){button.stat:hover{box-shadow:0 2px 10px rgba(0,0,0,.08)}}
+.empty-r{color:var(--mut)}.empty-r .u{margin-left:8px;color:var(--ink);font-weight:600}
+.wkl{font:600 15px var(--in);color:var(--ink)}
+button.dot.ok{cursor:pointer}
+@media (hover:hover){button.dot.ok:hover{box-shadow:0 0 0 2px #067647}}
+@media (max-width:699px){.filters:has(.osearch){flex-wrap:wrap}.filters .osearch{flex:1 1 100%}.remc .r>span{flex-basis:100%!important;margin-left:0!important}}

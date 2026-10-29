@@ -96,6 +96,7 @@
     }
     if (LIVE.on && S().role !== 'office') return go(me ? '#/' : '#/signin');
     var page = parts[1] || 'today';
+    if (page === 'today' || page === 'reports') backTo = page;
     if (page === 'reports') return office('reports', renderReports);
     if (page === 'report') return office('reports', function () { return renderDetail(parts[2]); });
     if (page === 'gc') return office('reports', function () { return renderGC(parts[2]); });
@@ -110,6 +111,7 @@
     if (e.key === 'Escape' && $layer.firstChild && !document.querySelector('.viewer')) { closeLayer(); return; }
     if (e.key === 'Tab' && $layer.firstChild) { var f = [].slice.call($layer.querySelectorAll('button:not([disabled]),input,select,textarea,[tabindex="0"]')).filter(function (x) { return x.offsetParent !== null; }); if (!f.length) return; var a = f[0], z = f[f.length - 1]; if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); } else if (!$layer.contains(document.activeElement)) { e.preventDefault(); a.focus(); } }
     if (e.key === 'Enter' && e.target.matches && e.target.matches('tr[data-go]')) go(e.target.dataset.go);
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('tr[data-act]')) e.target.click();
   });
 
   function previewBar(active) {
@@ -151,7 +153,7 @@
     var sent = S().reports.filter(function (r) { return r.person === me.id && r.date === dk; })[0];
     if (sent) return page('REPORT ALREADY SENT', 'You sent a report for ' + esc(forDay) + ' (' + esc(jobName(sent)) + '), so there’s nothing to mark.', '<button class="go" data-go="#/">DONE ' + I('arrow-right', 22, '#990000') + '</button>');
     var done = '<button class="go" data-act="start">SEND A REPORT ' + I('arrow-right', 22, '#990000') + '</button>';
-    if (isOff(me.id, dk) && !offBusy) return page('YOU’RE MARKED OFF', 'No reminder for ' + esc(forDay) + '. The office sees you were off, not a missed report. Worked after all? Send a report below.', done);
+    if (isOff(me.id, dk) && !offBusy) return page('YOU’RE MARKED OFF', 'No reminder for ' + esc(forDay) + '. The office sees you were off, not a missed report. Worked after all? Send a report below.', done + '<p class="who"><button data-act="offundo" data-day="' + dk + '">Undo, I’m not off</button></p>');
     if (offBusy) return page('SAVING…', 'One moment.');
     var now = new Date(), o = { id: 'off-' + dk + '-' + Math.random().toString(36).slice(2, 8), date: dk, person: me.id, personName: me.name, sentDate: k, sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') };
     if (!LIVE.on) { offs().push(o); DB.save(); return renderOff(dk); }
@@ -272,7 +274,7 @@
     var nErr = Object.keys(e).length;
     var wx = wxText(d);
     var wide = isWide();
-    var head = '<header class="fh"><img class="logo" src="' + LOGO + '" alt="MKI LLC"><div class="wd">' + (wd(k) + ', ' + md(k)).toUpperCase() + '</div><h1 class="dt">HI, ' + esc(String(me.first || '').toUpperCase()) + '</h1></header>';
+    var head = '<header class="fh"><div class="fhtop"><img class="logo" src="' + LOGO + '" alt="MKI LLC"><a class="fback" href="#/">' + I('chevron-left', 18, '#fff') + 'Back</a></div><div class="wd">' + (wd(k) + ', ' + md(k)).toUpperCase() + '</div><h1 class="dt">HI, ' + esc(String(me.first || '').toUpperCase()) + '</h1></header>';
     var work = CARD['q-work'](d, e), mat = CARD['q-mat'](d, e), delay = CARD['q-delay'](d, e), safety = CARD['q-safety'](d, e), plan = CARD['q-plan'](d, e);
     // Once sending has started, the report is locked so what reaches the office and the PDF record always match.
     var locked = !!d.sendKey;
@@ -451,7 +453,7 @@
     var me = person(r.person), fl = [];
     if (r.mat.yes) fl.push('Needs materials'); if (r.delay.yes) fl.push('Delay'); if (r.safety.yes) fl.push('Safety');
     $app.innerHTML = previewBar('f') + '<main class="dark sent"><div class="okc">' + I('check', 38, '#fff') + '</div><h1>REPORT SENT</h1><p class="sub">' + (r.sentDate && r.sentDate !== r.date ? 'Your report for ' + shortDate(r.date) + ' is in. Thanks, ' : 'You’re done for today. Thanks, ') + esc(me.first) + '.</p>' +
-      '<div class="sum"><div><span>Job</span><b>' + esc(jobName(r)) + '</b></div><div><span>Report for</span><b>' + shortDate(r.date) + '</b></div><div><span>Sent</span><b>' + shortDate(r.sentDate || r.date) + ' · ' + sentText(r) + '</b></div><div><span>Photos & videos</span><b>' + (r.photoData && r.photoData.length ? mediaCount(r.photoData) : r.photos) + '</b></div><div><span>Flagged</span><b>' + (fl.length ? fl.join(', ') : 'Nothing') + '</b></div></div>' +
+      '<div class="sum"><div><span>Job</span><b>' + esc(jobName(r)) + '</b></div><div><span>Report for</span><b>' + shortDate(r.date) + '</b></div><div><span>Sent</span><b>' + shortDate(r.sentDate || r.date) + ' · ' + sentText(r) + '</b></div><div><span>Photos & videos</span><b>' + (r.photoData && r.photoData.length ? mediaCount(r.photoData) : ((r.photos ? r.photos + (r.photos === 1 ? ' photo' : ' photos') : '') + (r.photos && r.videos ? ' · ' : '') + (r.videos ? r.videos + (r.videos === 1 ? ' video' : ' videos') : '') || 'None')) + '</b></div><div><span>Flagged</span><b>' + (fl.length ? fl.join(', ') : 'Nothing') + '</b></div></div>' +
       '<div class="grow"></div><button class="btn btn-white" data-act="done">DONE</button><p class="cap">Next time you open the app it starts fresh.</p></main>';
   }
 
@@ -462,7 +464,7 @@
     for (var i = 0; i < 7; i++) { var x = new Date(t); x.setDate(x.getDate() - i); var k = keyOf(x), sent = S().reports.some(function (r) { return r.person === S().me && r.date === k; });
       rows += '<button class="jrow' + (d.day === k ? ' on' : '') + '" data-act="pickday" data-day="' + k + '"><b>' + dayLabel(k) + '</b>' + (sent ? '<span>' + I('check', 13) + ' You already sent a report for this day</span>' : '') + '</button>'; }
     var min = new Date(t); min.setDate(min.getDate() - 30);
-    openLayer('<div class="dim" data-act="close"></div><div class="tray sheet narrow" role="dialog" aria-label="Report date"><div class="grab"></div><div class="th"><h2>Which day is this for?</h2><button class="btn btn-tertiary" data-act="close">CANCEL</button></div>' +
+    openLayer('<div class="dim" data-act="close"></div><div class="tray sheet narrow" role="dialog" aria-label="Report date"><div class="th"><h2>Which day is this for?</h2><button class="btn btn-tertiary" data-act="close">CANCEL</button></div>' +
       '<div class="scroll">' + rows + '</div><div class="fld"><label for="pd">Older date</label><input id="pd" type="date" min="' + keyOf(min) + '" max="' + todayKey() + '" value="' + d.day + '"></div></div>');
   }
   function focusItem(k, i) { var el = document.querySelector('[data-f="' + k + '.' + i + '"]'); if (el) el.focus({ preventScroll: false }); }
@@ -487,12 +489,14 @@
     }
     return rows + '<button class="reqlink" data-act="reqjob">' + I('plus', 18) + 'Job not listed? Request a new job</button>';
   }
-  function openJobs() {
-    openLayer('<div class="dim" data-act="close"></div><div class="tray sheet" role="dialog" aria-label="Choose a job"><div class="grab"></div><div class="th"><h2>Choose a job</h2><button class="btn btn-tertiary" data-act="close">CANCEL</button></div>' +
-      '<div class="search">' + I('search', 20, '#6B6262') + '<input type="search" aria-label="Search jobs" placeholder="Search jobs" data-act="jobq" autocomplete="off"></div><div class="scroll" id="jlist">' + jobTray('') + '</div></div>');
+  var lastJobQ = '';
+  function openJobs(q) {
+    q = q || '';
+    openLayer('<div class="dim" data-act="close"></div><div class="tray sheet" role="dialog" aria-label="Choose a job"><div class="th"><h2>Choose a job</h2><button class="btn btn-tertiary" data-act="close">CANCEL</button></div>' +
+      '<div class="search">' + I('search', 20, '#6B6262') + '<input type="search" aria-label="Search jobs" placeholder="Search jobs" data-act="jobq" autocomplete="off" value="' + esc(q) + '"></div><div class="scroll" id="jlist">' + jobTray(q) + '</div></div>');
   }
   function openReqJob(prefill) {
-    openLayer('<div class="dim" data-act="close"></div><div class="tray sheet" role="dialog" aria-label="New job"><div class="grab"></div><div class="th"><h2>New job</h2><button class="btn btn-tertiary" data-act="jobs">BACK</button></div>' +
+    openLayer('<div class="dim" data-act="close"></div><div class="tray sheet" role="dialog" aria-label="New job"><div class="th"><h2>New job</h2><button class="btn btn-tertiary" data-act="jobs">BACK</button></div>' +
       '<div class="fld"><label for="nj">Job name</label><input id="nj" maxlength="80" value="' + esc(prefill || '') + '" placeholder="e.g. Cornelius Fire Station 4" autocomplete="off"></div>' +
       '<div class="fld"><label for="na">Job site address (optional)</label><input id="na" placeholder="Street and town, e.g. 21440 Catawba Ave, Cornelius" autocomplete="off"></div>' +
       '<div class="note">' + I('info', 20) + '<span>The office checks the name so every report for this job lands in the same folder. You can send your report right away.</span></div>' +
@@ -528,7 +532,7 @@
     if (p.ok && TT.k === 'start' && d.finish) { var y = dur(p.hm, d.finish); if (y.over) note = 'Finish is ' + fmt12(d.finish) + ', so this counts as an overnight shift (' + durText(y.mins) + ').'; }
     var keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(function (n) { return '<button data-act="key" data-k="' + n + '">' + n + '</button>'; }).join('') +
       '<button class="fn" data-act="key" data-k="clear">Clear</button><button data-act="key" data-k="0">0</button><button class="fn" data-act="key" data-k="del" aria-label="Delete">' + I('delete', 24) + '</button>';
-    var inner = '<div class="grab"></div><div class="th"><h2>' + (TT.k === 'start' ? 'When did you start?' : 'When did you finish?') + '</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
+    var inner = '<div class="th"><h2>' + (TT.k === 'start' ? 'When did you start?' : 'When did you finish?') + '</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
       '<div class="tt-disp" aria-live="polite"><span class="t' + (TT.buf ? '' : ' ph') + '">' + shown + '</span><span class="cur"></span><span class="ap">' + ap + '</span>' + (over ? '<span class="nd">NEXT DAY</span>' : '') + '</div>' +
       '<div class="ampm"><button class="' + (ap === 'AM' ? 'on' : '') + '" data-act="ap" data-v="AM" aria-pressed="' + (ap === 'AM') + '">' + I('sun', 20) + 'AM</button><button class="' + (ap === 'PM' ? 'on' : '') + '" data-act="ap" data-v="PM" aria-pressed="' + (ap === 'PM') + '">' + I('moon', 20) + 'PM</button></div>' +
       '<div class="pad">' + keys + '</div>' +
@@ -616,6 +620,8 @@
     var tabs = '<nav class="tabs">' + (LIVE.on ? NAV.concat([['send', 'Report', 'file-text', '#/']]) : NAV).map(function (n) { return '<a class="' + (n[0] === active ? 'on' : '') + '" href="' + n[3] + '">' + I(n[2], 22) + (n[0] === 'reports' ? 'Reports' : n[1]) + '</a>'; }).join('') + '</nav>';
     $app.innerHTML = previewBar('o') + '<div class="of">' + side + '<main class="main">' + fn() + '</main></div>' + tabs;
   }
+  var backTo = 'reports';
+  function backLink() { return '<a class="back" href="' + (backTo === 'today' ? '#/office' : '#/office/reports') + '">' + I('chevron-left', 18) + (backTo === 'today' ? 'Today' : 'All reports') + '</a>'; }
   var F = { job: '', who: '', range: '7', flag: '', q: '', chips: {}, more: 9, jobsShow: 'active', jq: '' };
   function dd(name, val, opts) { return '<label class="dd"><select aria-label="' + esc(opts[0][1]) + '" data-fil="' + name + '">' + opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 16) + '</label>'; }
   function jobOpts(all) { return [['', all]].concat(S().jobs.filter(function (j) { return j.active || j.num === F.job; }).sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (j) { return [j.num, j.name]; })); }
@@ -643,18 +649,18 @@
     var weekStart = dObj(k); weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
     var safetyWk = reps.filter(function (r) { return r.safety.yes && dObj(r.date) >= weekStart; });
     var sentExp = expected.filter(function (p) { return sentIds[p.id]; }).length;
-    function stat(l, v, sub, kind) { return '<div class="stat ' + (kind || '') + '"><div class="l">' + l + '</div><div class="v">' + v + '</div><div class="s">' + (kind ? I(kind === 'ok' ? 'check' : kind === 'err' ? 'alert-circle' : 'alert-triangle', 14) : '') + esc(sub) + '</div></div>'; }
+    function stat(l, v, sub, kind, go) { var tg = go ? 'button' : 'div'; return '<' + tg + ' class="stat ' + (kind || '') + (go ? ' go' : '') + '"' + (go || '') + '><div class="l">' + l + '</div><div class="v">' + v + '</div><div class="s">' + (kind ? I(kind === 'ok' ? 'check' : kind === 'err' ? 'alert-circle' : 'alert-triangle', 14) : '') + esc(sub) + '</div>' + (go ? I('chevron-right', 16, '#6B6262') : '') + '</' + tg + '>'; }
     var people = expected.concat(offToday); today.forEach(function (r) { if (people.indexOf(person(r.person)) < 0) people.push(person(r.person)); });
     var fms = people.map(function (p) {
       var r = sentIds[p.id], off = !r && offToday.indexOf(p) > -1, jb = r ? jobName(r) : off ? 'Marked off today' : (p.usualJob && job(p.usualJob) ? job(p.usualJob).name : 'No report yet');
-      var tag = r ? 'button' : 'div'; // only a sent report opens something, so only that card is a button
-      return '<' + tag + ' class="fm' + (r ? ' go' : '') + (r || off ? '' : ' miss') + '"' + (r ? ' data-go="#/office/report/' + r.id + '" aria-label="Open ' + esc(p.short) + '’s report"' : '') + '><div class="av' + (r ? '' : ' gray') + '">' + p.ini + '</div><div class="t"><b>' + esc(p.short) + '</b><span>' + esc(jb) + '</span></div>' + (r ? pill('Sent ' + sentText(r), 'ok') : off ? pill('Off today', 'neutral') : pill('Not sent', 'err')) + (r ? I('chevron-right', 18, '#6B6262') : '') + '</' + tag + '>';
+      var late = new Date().getHours() >= 19, tag = r ? 'button' : 'div'; // only a sent report opens something, so only that card is a button
+      return '<' + tag + ' class="fm' + (r ? ' go' : '') + (r || off || !late ? '' : ' miss') + '"' + (r ? ' data-go="#/office/report/' + r.id + '" aria-label="Open ' + esc(p.short) + '’s report"' : '') + '><div class="av' + (r ? '' : ' gray') + '">' + p.ini + '</div><div class="t"><b>' + esc(p.short) + '</b><span>' + esc(jb) + '</span></div>' + (r ? pill('Sent ' + sentText(r), 'ok') : off ? pill('Off today', 'neutral') : late ? pill('Not sent', 'err') : pill('Not sent yet', 'neutral')) + (r ? I('chevron-right', 18, '#6B6262') : '') + '</' + tag + '>';
     }).join('');
     return '<div class="toprow"><div><div class="wdl">' + wd(k) + '</div><h1 class="h1">' + md(k) + '</h1></div><div class="filters">' + dd('job', F.job, jobOpts('All jobs')) + dd('who', F.who, whoOpts('All foremen')) + '</div></div>' +
       '<div class="stats">' + stat('REPORTS TODAY', weekend ? String(today.length) : sentExp + ' / ' + expected.length, weekend ? 'No reports expected on weekends' : !expected.length ? (today.length + ' sent · no daily reminders on') : missing.length ? missing.map(function (p) { return p.short; }).join(', ') + (missing.length > 1 ? ' haven’t' : ' hasn’t') + ' sent yet' : 'Everyone has sent') +
       stat('MISSING TODAY', missing.length, missing.length ? (missing.length === 1 ? 'Hasn’t sent yet' : 'Haven’t sent yet') : 'Nobody missing', missing.length ? 'err' : 'ok') +
-      stat('NEEDS MATERIALS', mats.length, mats.length ? mats.map(jobName).join(', ') : 'Nothing requested today', mats.length ? 'warn' : 'ok') +
-      stat('SAFETY ISSUES', safetyWk.length, safetyWk.length ? 'This week' : 'None this week', safetyWk.length ? 'err' : 'ok') + '</div>' +
+      stat('NEEDS MATERIALS', mats.length, mats.length ? mats.map(jobName).join(', ') : 'Nothing requested today', mats.length ? 'warn' : 'ok', mats.length === 1 ? ' data-go="#/office/report/' + mats[0].id + '"' : mats.length ? ' data-act="statf" data-k="mat"' : '') +
+      stat('SAFETY ISSUES', safetyWk.length, safetyWk.length ? 'This week' : 'None this week', safetyWk.length ? 'err' : 'ok', safetyWk.length === 1 ? ' data-go="#/office/report/' + safetyWk[0].id + '"' : safetyWk.length ? ' data-act="statf" data-k="safety"' : '') + '</div>' +
       '<div class="sec-t">Foremen today</div>' + (fms ? '<div class="fms">' + fms + '</div>' : '<div class="blk"><p class="mut">' + (weekend ? 'It’s the weekend, so nobody is expected to send a report today.' : 'Nobody has daily reminders on.') + '</p></div>') +
       '<div class="tbl cards"><div class="hd"><span class="sec-t">Recent reports</span><a class="u" style="font:600 14px var(--in);color:var(--ink)" href="#/office/reports">See all reports</a></div><table><thead><tr><th>DATE</th><th>JOB</th><th>FOREMAN</th><th>FLAGS</th><th>PHOTOS</th><th></th></tr></thead><tbody>' + repRows(reps.slice(0, 5)) + '</tbody></table></div>';
   }
@@ -677,8 +683,8 @@
   }
   function resultsHTML() {
     var list = reportList(), shown = list.slice(0, F.more);
-    return '<div class="tbl cards"><table><thead><tr><th>DATE</th><th>JOB</th><th>FOREMAN</th><th>FLAGS</th><th>PHOTOS</th><th></th></tr></thead><tbody>' + (shown.length ? repRows(shown, 'crew') : '<tr><td colspan="6" class="mut">No reports match these filters.</td></tr>') + '</tbody></table></div>' +
-      pager(shown.length, list.length);
+    return '<div class="tbl cards"><table><thead><tr><th>DATE</th><th>JOB</th><th>FOREMAN</th><th>FLAGS</th><th>PHOTOS</th><th></th></tr></thead><tbody>' + (shown.length ? repRows(shown, 'crew') : '<tr><td colspan="6" class="empty-r">No reports match these filters. <button class="u" data-act="clearf">Clear filters</button></td></tr>') + '</tbody></table></div>' +
+      (list.length ? pager(shown.length, list.length) : '');
   }
   /* Suggestions while typing: jobs and foremen that match, so a few letters is enough. */
   function suggestHTML(q) {
@@ -710,7 +716,7 @@
       var it = pics && pics[i], th = thumbOf(it), inner = th ? '' : I(isVid(it) ? 'play' : 'image', cls === 'big' ? 32 : 24, '#fff');
       return '<button class="ptile ' + cls + '" data-act="viewer" data-id="' + r.id + '" data-i="' + i + '" aria-label="Open item ' + (i + 1) + ' of ' + r.photos + '"' + (th ? ' style="background:url(' + th + ') center/cover"' : '') + '>' + inner + playBadge(it) + more + '</button>';
     }
-    return '<a class="back" href="#/office/reports">' + I('chevron-left', 18) + 'All reports</a>' +
+    return backLink() +
       '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + (late ? shortDate(r.sentDate) + ' ' : '') + sentText(r) + '</p></div><div class="filters">' + (LIVE.on && r.mediaUrl ? '<button class="obtn tertiary" data-act="folder" data-id="' + r.id + '">' + I('folder', 18) + 'Open report folder</button>' : '') + '<button class="obtn primary" data-act="gcopen" data-id="' + r.id + '">' + I('file-text', 18, '#fff') + 'GC report</button></div></div>' +
       (function () {
         var rvw = r.review || {}, ls = (rvw.sent || []).slice(-1)[0], ld = (rvw.drafts || []).slice(-1)[0], bits = [];
@@ -722,7 +728,7 @@
       })() +
       '<div class="dbody"><div class="dl-col"><div class="facts">' +
       '<div class="fact"><div class="l">WEATHER</div><div class="v">' + esc(wxTemp(r.weather) || '—') + '</div><div class="s">' + esc(r.weather ? wxRest(r.weather) : 'Not available') + '</div></div>' +
-      '<div class="fact"><div class="l">PHOTOS & VIDEOS</div><div class="v">' + r.photos + '</div><div class="s">' + (r.videos ? mediaCount(r.photoData && r.photoData.length === r.photos ? r.photoData : []) || (r.videos + ' video') : r.photos ? 'Tap one to open it' : 'None sent') + '</div></div>' +
+      '<div class="fact"><div class="l">PHOTOS & VIDEOS</div><div class="v">' + r.photos + '</div><div class="s">' + (r.videos ? mediaCount(r.photoData && r.photoData.length === r.photos ? r.photoData : []) || (r.videos + ' video') : r.photos ? 'Open one to see it' : 'None sent') + '</div></div>' +
       '<div class="fact"><div class="l">SENT</div><div class="v">' + sentText(r) + '</div><div class="s">' + (late ? 'Late · on ' + shortDate(r.sentDate) : 'Same day') + '</div></div></div>' +
       list('Work completed today', r.work) +
       blk('Materials, equipment, or inspections', r.mat.yes ? r.mat.text : '', r.mat.yes ? pill('Needs materials', 'warn') : pill('Nothing needed', 'ok')) +
@@ -730,7 +736,7 @@
       blk('Safety or quality issues', r.safety.yes ? r.safety.text : '', r.safety.yes ? pill('Safety issue', 'err') : pill('No incidents', 'ok')) +
       list('Plan for next workday', r.plan) + '</div>' +
       '<div class="pbox"><div class="toprow"><span class="blk" style="padding:0"><span class="l">PHOTOS & VIDEOS · ' + r.photos + '</span></span>' + '</div>' +
-      (r.photos ? ph(0, 'big') + (r.photos > 1 ? '<div class="two">' + ph(1, '') + (r.photos > 2 ? ph(2, '') : '<div style="background:none"></div>') + '</div>' : '') + '<div class="ofoot">Tap a photo to open it full size</div>' : '<div class="ofoot">No photos with this report.</div>') + '</div></div>';
+      (r.photos ? ph(0, 'big') + (r.photos > 1 ? '<div class="two">' + ph(1, '') + (r.photos > 2 ? ph(2, '') : '<div style="background:none"></div>') + '</div>' : '') + '<div class="ofoot">Open a photo to see it full size</div>' : '<div class="ofoot">No photos with this report.</div>') + '</div></div>';
   }
 
   /* ---------------- GC report ---------------- */
@@ -828,12 +834,12 @@
       var cur = v.sections[sx.k], txt = (cur.text || []).join('\n');
       return '<section class="card gcsec' + (cur.on ? '' : ' off') + '"><div class="gchead"><label class="gcinc"><input type="checkbox" data-gc="on" data-k="' + sx.k + '"' + (cur.on ? ' checked' : '') + '><span>' + esc(sx.t) + '</span></label><span class="mut gcin">' + (cur.on ? 'In the GC report' : 'Not sent to the GC') + '</span></div>' +
         '<textarea class="gcta" rows="' + Math.max(2, (cur.text || []).length + 1) + '" data-gc="text" data-k="' + sx.k + '" placeholder="' + (sx.k === 'notes' ? 'Optional note for the GC' : 'One item per line') + '">' + esc(txt) + '</textarea>' +
-        (sx.hint ? '<p class="gchint">' + esc(sx.hint) + '</p>' : '') +
+        (cur.auto && cur.on ? '<p class="gchint">Turned on because the foreman mentions an inspection or test. Turn it off if the GC doesn’t need it.</p>' : sx.hint ? '<p class="gchint">' + esc(sx.hint) + '</p>' : '') +
         '<div class="gcorigw" id="gco-' + sx.k + '">' + gcOrigHTML(r, sx.k) + '</div></section>';
     }).join('');
     var pics = (r.photoData || []).map(function (x, i) { return { x: x, i: i }; }).filter(function (q) { return !isVid(q.x); });
     var vids = (r.photoData || []).filter(isVid).length;
-    var photos = r.photos && !r.photoData ? (r._mediaErr ? '<p class="mut">The photos couldn’t be loaded. <button class="u" data-act="gcretry" data-id="' + r.id + '">Try again</button></p>' : !r.mediaFolder ? '<p class="mut">This report’s photos aren’t in a SharePoint folder, so they can’t go in the PDF.</p>' : '<p class="mut">Loading photos…</p>') : pics.length ? '<div class="gcpics">' + pics.map(function (q, n) {
+    var photos = r.photos && !r.photoData ? (r._mediaErr ? '<p class="mut">The photos couldn’t be loaded. <button class="u" data-act="gcretry" data-id="' + r.id + '">Try again</button></p>' : !LIVE.on ? '<p class="mut">Sample reports in preview have no real photos to pick.</p>' : !r.mediaFolder ? '<p class="mut">This report’s photos aren’t in a SharePoint folder, so they can’t go in the PDF.</p>' : '<p class="mut">Loading photos…</p>') : pics.length ? '<div class="gcpics">' + pics.map(function (q, n) {
       var on = !v.photos || v.photos.indexOf(q.i) > -1, th = thumbOf(q.x);
       return '<label class="gcpic' + (on ? ' on' : '') + '"' + (th ? ' style="background-image:url(' + th + ')"' : '') + '><input type="checkbox" data-gc="photo" data-i="' + q.i + '"' + (on ? ' checked' : '') + ' aria-label="Include photo ' + (n + 1) + '"><span class="ck">' + I('check', 14, '#fff') + '</span></label>';
     }).join('') + '</div>' + (vids ? '<p class="gchint">Videos can’t go in a PDF. The report says they are in MKI’s job folder.</p>' : '') : vids ? '<p class="mut">This report has ' + (vids === 1 ? 'a video' : vids + ' videos') + ' and no photos. Videos can’t go in a PDF, so the report says they are in MKI’s job folder.</p>' : '<p class="mut">No photos with this report.</p>';
@@ -862,7 +868,7 @@
         '<div class="fld"><label for="gc-p">GC project number</label><input id="gc-p" data-gcjob="gcProject" value="' + esc(j.gcProject || '') + '" autocomplete="off"></div>' +
         '<div class="fld wide"><label for="gc-e">GC email<span class="opt">Separate several with commas</span></label><input id="gc-e" type="email" multiple data-gcjob="gcEmail" value="' + esc(gcEmails) + '" autocomplete="off"></div></div></section>' : '<section class="card gccard"><p class="mut" style="margin:0">This report is on a job the office hasn’t approved yet. Approve or merge it on the Jobs page to add the GC details.</p></section>') +
       combo + secs +
-      '<section class="card gccard" id="gcphotos"><div class="gchead"><span class="gct">Photos for the GC</span><span><button class="u" data-act="gcall" data-id="' + r.id + '" data-v="1">All</button> · <button class="u" data-act="gcall" data-id="' + r.id + '" data-v="0">None</button></span></div>' + photos + '</section>' +
+      '<section class="card gccard" id="gcphotos"><div class="gchead"><span class="gct">Photos for the GC</span>' + (pics.length > 1 ? '<span><button class="u" data-act="gcall" data-id="' + r.id + '" data-v="1">All</button> · <button class="u" data-act="gcall" data-id="' + r.id + '" data-v="0">None</button></span>' : '') + '</div>' + photos + '</section>' +
       '<div class="gcbar"><span id="gcsave" class="mut">' + (v.savedAt ? 'All changes saved' : 'Changes save as you type') + '</span><div class="gcacts">' +
         '<button class="obtn tertiary" data-act="gcpdf" data-id="' + r.id + '">' + I('file-text', 18) + 'Download PDF</button>' +
         (LIVE.on ? '<button class="obtn tertiary" data-act="gcfolder" data-id="' + r.id + '">' + I('folder', 18) + 'Save to job folder</button><button class="obtn primary" data-act="gcmail" data-id="' + r.id + '">Email to GC</button>' : '') + '</div></div>';
@@ -893,21 +899,21 @@
     }).join('');
     var rows = list.map(function (j) {
       var rs = s.reports.filter(function (r) { return r.job === j.num; }).sort(function (a, b) { return b.date.localeCompare(a.date); });
-      var fm = rs[0] ? person(rs[0].person).short : (j.foreman ? person(j.foreman).short : '—');
-      return '<tr><td class="job"><span class="num">' + esc(j.num) + '</span>' + esc(j.name) + '</td><td>' + esc(fm) + '</td><td class="hide-m">' + (rs[0] ? relDate(rs[0].date) : 'No reports yet') + '</td><td class="hide-m">' + rs.length + '</td><td>' + (j.active ? pill('Active', 'ok') : '<span class="pill neutral">Finished</span>') + '</td>' +
+      var fm = j.foreman ? person(j.foreman).short : rs[0] ? 'Last: ' + person(rs[0].person).short : '—';
+      return '<tr class="click" tabindex="0" data-act="jobreports" data-num="' + esc(j.num) + '" aria-label="See reports for ' + esc(j.name) + '"><td class="job"><span class="num">' + esc(j.num) + '</span>' + esc(j.name) + '</td><td>' + esc(fm) + '</td><td class="hide-m">' + (rs[0] ? relDate(rs[0].date) : 'No reports yet') + '</td><td class="hide-m">' + rs.length + '</td><td>' + (j.active ? pill('Active', 'ok') : '<span class="pill neutral">Finished</span>') + '</td>' +
         '<td class="go"><div class="menu-w"><button class="mbtn" data-act="jobmenu" data-num="' + esc(j.num) + '" aria-haspopup="menu" aria-label="More for ' + esc(j.name) + '">' + I('more-horizontal', 18) + '</button></div></td></tr>';
     }).join('');
     return '<div class="toprow"><h1 class="h1">Jobs</h1><button class="obtn primary" data-act="addjob">' + I('plus', 18, '#fff') + 'Add job</button></div>' +
       (s.requests.length ? '<div class="reqc"><div class="top">' + pill(s.requests.length + (s.requests.length === 1 ? ' new job request' : ' new job requests'), 'warn') + 'Foremen can ask for a job that isn’t on the list. Approve it, or merge it into a job that already exists.</div>' + reqs + '</div>' : '') +
       '<div class="filters"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" aria-label="Search jobs" placeholder="Search jobs" value="' + esc(F.jq) + '" data-fil="jq" autocomplete="off"></label>' + dd('jobsShow', F.jobsShow, [['active', 'Active jobs'], ['finished', 'Finished jobs'], ['all', 'All jobs']]) + '</div>' +
       '<div class="tbl cards jobs"><table><thead><tr><th>JOB</th><th>FOREMAN</th><th>LAST REPORT</th><th>REPORTS</th><th>STATUS</th><th></th></tr></thead><tbody id="jobsbody">' + (rows || '<tr><td colspan="6" class="mut">No jobs here.</td></tr>') + '</tbody></table></div>' +
-      '<div class="ofoot">Finished jobs drop off the foreman’s list but keep their reports and photos. Job numbers match the job folders. Tap ··· to edit a job, mark it finished or reopen it. Add the job site address so reports get that town’s weather.</div>';
+      '<div class="ofoot">Finished jobs drop off the foreman’s list but keep their reports and photos. Job numbers match the job folders. Click a job to see its reports, or use ··· to edit it, mark it finished or reopen it. Add the job site address so reports get that town’s weather.</div>';
   }
   function nextNum() { var yy = String(new Date().getFullYear()).slice(2), max = 3000; S().jobs.forEach(function (j) { var p = j.num.split('-'); if (p[0] === yy) max = Math.max(max, +p[1]); }); return yy + '-' + (max + 1); }
   function openAddJob(prefill, reqId, addr, editNum) {
     var ej = editNum ? job(editNum) : null;
     if (ej) { prefill = ej.name; addr = ej.address; }
-    openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="' + (ej ? 'Edit job' : 'Add a job') + '"><div class="toprow"><h2>' + (ej ? 'EDIT JOB' : 'ADD A JOB') + '</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
+    openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="' + (ej ? 'Edit job' : reqId ? 'Approve job request' : 'Add a job') + '"><div class="toprow"><h2>' + (ej ? 'EDIT JOB' : reqId ? 'APPROVE JOB REQUEST' : 'ADD A JOB') + '</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
       '<div class="fld"><label for="aj-n">Job name</label><input id="aj-n" maxlength="80" value="' + esc(prefill || '') + '" autocomplete="off"></div>' +
       '<div class="fld"><label for="aj-a">Job site address<span class="opt">For the weather on reports</span></label><input id="aj-a" placeholder="Street, city, state" value="' + esc(addr || '') + '" autocomplete="off"></div>' +
       '<div class="fld"><label for="aj-f">Main foreman<span class="opt">Optional</span></label><label class="dd" style="display:flex"><select id="aj-f" style="width:100%;padding:15px 38px 15px 14px;font-size:16px;border-radius:12px"><option value="">Pick a foreman</option>' + S().people.filter(function (p) { return p.crew || (ej && ej.foreman === p.id); }).map(function (p) { return '<option value="' + p.id + '"' + (ej && ej.foreman === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label></div>' +
@@ -917,7 +923,7 @@
       (ej ? '<div class="fld"><label>Job number</label><p style="margin:0;font:15px var(--in)">' + esc(ej.num) + ' <span class="mut" style="font-size:13px">· matches the job folder, so it can’t be changed here</span></p></div>' :
       '<div class="fld"><label for="aj-j">Job number</label><input id="aj-j" value="' + nextNum() + '" autocomplete="off"></div>' +
       '<div class="note" style="font-size:13px;color:var(--mut)">' + I('bell', 18) + '<span>Shows up on every foreman’s job list right away. A job folder is made in SharePoint the first time a report comes in.</span></div>') +
-      '<div class="acts"><button class="obtn tertiary" data-act="close">Cancel</button><button class="obtn primary" data-act="' + (ej ? 'saveedit' : 'savejob') + '"' + (reqId ? ' data-req="' + reqId + '"' : '') + (ej ? ' data-num="' + esc(ej.num) + '"' : '') + '>' + (ej ? 'Save' : 'Add job') + '</button></div></div>');
+      '<div class="acts"><button class="obtn tertiary" data-act="close">Cancel</button><button class="obtn primary" data-act="' + (ej ? 'saveedit' : 'savejob') + '"' + (reqId ? ' data-req="' + reqId + '"' : '') + (ej ? ' data-num="' + esc(ej.num) + '"' : '') + '>' + (ej ? 'Save' : reqId ? 'Approve' : 'Add job') + '</button></div></div>');
     setTimeout(function () { var i = document.getElementById('aj-n'); if (i) i.focus(); }, 50);
   }
   function openMerge(reqId) {
@@ -935,17 +941,18 @@
     var sun = dObj(days[6]);
     var since = LIVE.on ? LIVE.since : '';
     var rows = s.people.filter(function (p) { return p.crew; }).map(function (p) {
-      var cnt = 0, missedToday = false, missed = 0, worked = 0;
+      var cnt = 0, missedToday = false, pendingToday = false, missed = 0, worked = 0;
       var dots = days.map(function (dk, i) {
         var weekend = i > 4;
-        var sent = s.reports.some(function (r) { return r.person === p.id && r.date === dk; });
+        var sentR = s.reports.filter(function (r) { return r.person === p.id && r.date === dk; })[0], sent = !!sentR;
         if (dk > k || dk < since) return '<td class="wkcell hide-m"><span class="dot"></span></td>';
-        if (sent) { worked++; cnt++; return '<td class="wkcell hide-m"><span class="dot ok">' + I('check', 16, '#067647') + '</span></td>'; }
+        if (sent) { worked++; cnt++; return '<td class="wkcell hide-m"><button class="dot ok" data-go="#/office/report/' + sentR.id + '" aria-label="Open ' + esc(p.short) + '’s report for ' + shortDate(dk) + '" title="Open report">' + I('check', 16, '#067647') + '</button></td>'; }
         if (isOff(p.id, dk)) return '<td class="wkcell hide-m"><span class="dot off" title="Off">OFF</span></td>';
         if (weekend || !p.reminder) { if (!weekend) worked++; return '<td class="wkcell hide-m"><span class="dot"></span></td>'; }
+        if (dk === k && new Date().getHours() < 19) { pendingToday = true; return '<td class="wkcell hide-m"><span class="dot" title="Not sent yet"></span></td>'; }
         worked++; missed++; if (dk === k) missedToday = true; return '<td class="wkcell hide-m"><span class="dot err">' + I('x', 14, '#D92D20') + '</span></td>';
       }).join('');
-      var st = !p.reminder ? '<span class="mut">Not tracked</span>' : missedToday ? pill('Missed today', 'err') : missed ? pill(missed + ' missed', 'err') : pill(cnt + ' of ' + worked, 'ok');
+      var st = !p.reminder ? '<span class="mut">Not tracked</span>' : missedToday ? pill('Missed today', 'err') : missed ? pill(missed + ' missed', 'err') : pendingToday && !worked ? '<span class="mut">Not sent yet</span>' : pill(cnt + ' of ' + worked, 'ok');
       var uj = p.usualJob && job(p.usualJob) ? job(p.usualJob).name : (p.role === 'Field Supervisor' ? 'New construction only' : '');
       return '<tr><td class="job fn"><div class="fn-w"><span class="av sm">' + p.ini + '</span><div class="fn-t"><div class="fn-n">' + esc(p.short) + '</div>' + (uj ? '<div class="fn-j">' + esc(uj) + '</div>' : '') + '</div></div></td>' + dots + '<td class="fst">' + st + '</td><td><button class="switch' + (p.reminder ? ' on' : '') + '" data-act="rem" data-id="' + p.id + '" role="switch" aria-checked="' + p.reminder + '" aria-label="Daily reminder for ' + esc(p.short) + '"></button></td></tr>';
     }).join('');
@@ -953,7 +960,7 @@
     var dh = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map(function (d) { return '<th class="wkcell hide-m">' + d + '</th>'; }).join('');
     var dc = days.map(function () { return '<col class="c-d hide-m">'; }).join('');
     return '<div class="toprow"><h1 class="h1">Foremen</h1></div>' +
-      '<div class="filters wk">' + dd('week', 'this', [['this', 'This week · ' + range]]) + '<span class="mut" style="font:14px var(--in)">Who sent a report each day</span></div>' +
+      '<div class="filters wk"><span class="wkl">This week · ' + range + '</span><span class="mut" style="font:14px var(--in)">Who sent a report each day</span></div>' +
       '<div class="tbl"><div style="overflow-x:auto"><table class="fmt"><colgroup><col class="c-n">' + dc + '<col class="c-w"><col class="c-r"></colgroup><thead><tr><th>FOREMAN</th>' + dh + '<th>THIS WEEK</th><th><span class="hide-m">REMINDER</span><span class="show-m" title="Daily reminder">' + I('bell', 16) + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
       '<div class="remc"><div class="sec-t" style="font-size:15px;color:var(--mut)">How this list works</div><div class="r">' + I('info', 20) + '<span style="flex:1">Everyone whose Microsoft 365 job title includes Foreman, Field Supervisor or Superintendent shows here, and people leave the list when their account is blocked or removed. The Reminder switch marks who is expected to send a report Monday to Friday. Weekend reports show up but are never counted as missed. At 7 PM Monday to Friday, anyone with Reminder on who hasn’t sent a report gets one email from the MKI Service mailbox, with an “I’m off today” button. Days marked off show as OFF, not missed.</span></div></div>';
   }
@@ -967,6 +974,11 @@
     switch (a) {
       case 'start': go('#/report'); break;
       case 'offretry': route(); break;
+      case 'offundo':
+        var uo = offs().filter(function (o) { return o.person === S().me && o.date === t.dataset.day; });
+        S().offs = offs().filter(function (o) { return uo.indexOf(o) < 0; }); DB.save();
+        if (LIVE.on) uo.forEach(function (o) { if (o.itemId) LIVE.unmarkOff(o).catch(function () { toast('Couldn’t undo. Check your signal and try again.'); offs().push(o); DB.save(); }); });
+        go('#/'); toast('Undone. You’re not marked off.'); break;
       case 'signin': if (LIVE.on) { LIVE.signIn(); break; } S().me = 'aharbin'; DB.save(); go('#/'); break;
       case 'folder': var fr = S().reports.filter(function (x) { return x.id === t.dataset.id; })[0]; if (fr && fr.mediaUrl) window.open(fr.mediaUrl, '_blank', 'noopener'); break;
       case 'resetdemo': DB.reset(); toast('Sample data reset.'); go('#/signin'); break;
@@ -978,13 +990,13 @@
       case 'vprev': vGo(V.i - 1); break;
       case 'vnext': vGo(V.i + 1); break;
       case 'vgo': vGo(+t.dataset.i); break;
-      case 'jobs': openJobs(); break;
+      case 'jobs': openJobs(lastJobQ); lastJobQ = ''; break;
       case 'dates': openDates(); break;
       case 'pickday': d = D(); d.day = t.dataset.day; d.weather = null; d.sendKey = null; d.uploaded = []; d.triedOnce = false; saveSoon(); closeLayer(); var dy0 = window.scrollY; renderReport(); window.scrollTo(0, dy0); break;
       case 'additem': d = D(); d[t.dataset.k].push(''); saveSoon(); refresh('q-' + t.dataset.k); focusItem(t.dataset.k, d[t.dataset.k].length - 1); break;
       case 'rmitem': d = D(); d[t.dataset.k].splice(+t.dataset.i, 1); if (!d[t.dataset.k].length) d[t.dataset.k] = ['']; saveSoon(); refresh('q-' + t.dataset.k); break;
       case 'pickjob': d = D(); var j = job(t.dataset.num); if (!d.job || d.job.num !== j.num) { d.weather = null; d.sendKey = null; d.uploaded = []; d.triedOnce = false; } d.job = { num: j.num, name: j.name }; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
-      case 'reqjob': var q = document.querySelector('[data-act=jobq]'); openReqJob(q ? q.value : ''); break;
+      case 'reqjob': var q = document.querySelector('[data-act=jobq]'); lastJobQ = q ? q.value : ''; openReqJob(lastJobQ); break;
       case 'usejob': var nm = document.getElementById('nj').value.trim(); if (!nm) { document.getElementById('nj').focus(); return; } d = D(); d.sendKey = null; d.uploaded = []; d.triedOnce = false; d.job = { num: null, name: nm, requested: true, addr: document.getElementById('na').value.trim() }; d.weather = null; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
       case 'time': openTime(t.dataset.k); break;
       case 'ap': TT.ap = t.dataset.v; var pp = parseT(TT.buf, TT.ap); if (pp.ok && pp.autoPM) { /* 24h entry: convert back to 12h digits */ var m = toMin(pp.hm); TT.buf = String(Math.floor(m / 60) % 12 || 12) + String(m % 60).padStart(2, '0'); } TT.fresh = false; drawTime(); break;
@@ -1035,6 +1047,7 @@
       case 'gcpdf':
         gcMake(gcReport(t.dataset.id)).then(function (out) {
           closeLayer(); var u = URL.createObjectURL(out.blob), a = document.createElement('a'); a.href = u; a.download = out.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
+          var yd = window.scrollY; route(); window.scrollTo(0, yd); toast('Downloaded “' + out.name + '”.');
         }, gcFail); break;
       case 'gcfolder':
         var rf = gcReport(t.dataset.id);
@@ -1067,6 +1080,9 @@
         break;
       case 'dodiscard': var old = S().draft; S().draft = null; DB.save(); if (LIVE.on && old) (old.photos || []).forEach(function (m) { if (m && m.key) LIVE.blobs.del(m.key).catch(function () {}); }); closeLayer(); if (/^#\/report/.test(location.hash)) go('#/'); else route(); break;
       case 'soon': break;
+      case 'statf': F.chips = {}; F.chips[t.dataset.k] = true; F.range = '7'; F.q = ''; F.job = ''; F.who = ''; F.more = 9; go('#/office/reports'); break;
+      case 'clearf': F.chips = {}; F.q = ''; F.job = ''; F.who = ''; F.range = '7'; F.more = 9; route(); break;
+      case 'jobreports': F.chips = {}; F.q = ''; F.who = ''; F.job = t.dataset.num; F.range = 'all'; F.more = 9; go('#/office/reports'); break;
       case 'chip': F.chips[t.dataset.k] = !F.chips[t.dataset.k]; F.more = 9; route(); break;
       case 'more': F.more += 9; document.getElementById('results') ? (document.getElementById('results').innerHTML = resultsHTML()) : route(); break;
       case 'sug': F[t.dataset.k] = t.dataset.v; F.q = ''; F.more = 9; route(); break;
@@ -1093,7 +1109,7 @@
         if (LIVE.on) sync(LIVE.updateJob(ej2), 'Job saved.', function () { for (var bk in before) ej2[bk] = before[bk]; DB.save(); route(); }); else toast('Job saved.');
         break;
       case 'merge': openMerge(t.dataset.id); break;
-      case 'domerge': var to = document.getElementById('mg').value; if (!to) return; var rq2 = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; var moved2 = []; S().reports.forEach(function (r) { if (r.jobName === rq2.name && r.job.indexOf('new:') === 0) { r.job = to; r.jobName = null; moved2.push(r); } }); S().requests = S().requests.filter(function (x) { return x.id !== rq2.id; }); DB.save(); sync(LIVE.on && LIVE.patchReports(moved2)); closeLayer(); route(); toast('Merged into ' + job(to).name + '.'); break;
+      case 'domerge': var mgs = document.getElementById('mg'), to = mgs.value; if (!to) { mgs.focus(); toast('Pick the job to merge into.'); return; } var rq2 = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; var moved2 = []; S().reports.forEach(function (r) { if (r.jobName === rq2.name && r.job.indexOf('new:') === 0) { r.job = to; r.jobName = null; moved2.push(r); } }); S().requests = S().requests.filter(function (x) { return x.id !== rq2.id; }); DB.save(); sync(LIVE.on && LIVE.patchReports(moved2)); closeLayer(); route(); toast('Merged into ' + job(to).name + '.'); break;
       case 'jobmenu': var openM = document.querySelector('.menu'); var same = openM && openM.dataset.num === t.dataset.num; if (openM) openM.remove(); [].forEach.call(document.querySelectorAll('tr.mopen'), function (x) { x.classList.remove('mopen'); }); if (same) break; var jrow = t.closest('tr'); if (jrow) jrow.classList.add('mopen'); var jm = job(t.dataset.num); var mn = document.createElement('div'); mn.className = 'menu'; mn.setAttribute('role', 'menu'); mn.dataset.num = jm.num; mn.innerHTML = '<button role="menuitem" data-act="editjob" data-num="' + esc(jm.num) + '">' + I('file-text', 16) + 'Edit job</button><button role="menuitem" data-act="jobstate" data-num="' + esc(jm.num) + '">' + I(jm.active ? 'check' : 'arrow-right', 16) + (jm.active ? 'Mark job finished' : 'Reopen job') + '</button>'; t.parentNode.appendChild(mn); break;
       case 'jobstate': var jj = job(t.dataset.num); jj.active = !jj.active; DB.save(); route(); sync(LIVE.on && LIVE.updateJob(jj)); toast(jj.name + (jj.active ? ' is active again.' : ' marked finished.'), function () { jj.active = !jj.active; DB.save(); route(); sync(LIVE.on && LIVE.updateJob(jj)); }); break;
       case 'rem': var pr = person(t.dataset.id); pr.reminder = !pr.reminder; DB.save(); route(); sync(LIVE.on && LIVE.savePerson(pr)); break;

@@ -47,7 +47,7 @@
   function newReview(r) {
     var o = original(r), sec = {};
     SECTIONS.forEach(function (s) { sec[s.k] = { on: s.on, text: o[s.k].slice() }; });
-    if (r.mat.yes && /inspect|test|inspector|pressure/i.test(r.mat.text)) sec.mat.on = true;
+    if (r.mat.yes && /inspect|test|inspector|pressure/i.test(r.mat.text)) { sec.mat.on = true; sec.mat.auto = true; }
     return { v: 1, sections: sec, photos: null, sent: [], savedAt: null, reviewedBy: null, reviewedAt: null };
   }
 

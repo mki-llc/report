@@ -627,26 +627,29 @@
   /* ---------------- office: foremen ---------------- */
   function renderForemen() {
     var s = S(), k = todayKey(), mon = dObj(k); mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
-    var days = [0, 1, 2, 3, 4].map(function (i) { var d = new Date(mon); d.setDate(d.getDate() + i); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); });
-    var fri = dObj(days[4]);
+    var days = [0, 1, 2, 3, 4, 5, 6].map(function (i) { var d = new Date(mon); d.setDate(d.getDate() + i); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); });
+    var sun = dObj(days[6]);
     var rows = s.people.map(function (p) {
       var cnt = 0, missedToday = false, missed = 0, worked = 0;
-      var dots = days.map(function (dk) {
+      var dots = days.map(function (dk, i) {
+        var weekend = i > 4;
         var sent = s.reports.some(function (r) { return r.person === p.id && r.date === dk; });
-        if (dk > k) return '<td class="wkcell"><span class="dot"></span></td>';
-        worked++; if (sent) { cnt++; return '<td class="wkcell"><span class="dot ok">' + I('check', 16, '#067647') + '</span></td>'; }
-        if (!p.reminder) return '<td class="wkcell"><span class="dot"></span></td>';
-        missed++; if (dk === k) missedToday = true; return '<td class="wkcell"><span class="dot err">' + I('x', 14, '#D92D20') + '</span></td>';
+        if (dk > k) return '<td class="wkcell hide-m"><span class="dot"></span></td>';
+        if (sent) { worked++; cnt++; return '<td class="wkcell hide-m"><span class="dot ok">' + I('check', 16, '#067647') + '</span></td>'; }
+        if (weekend || !p.reminder) { if (!weekend) worked++; return '<td class="wkcell hide-m"><span class="dot"></span></td>'; }
+        worked++; missed++; if (dk === k) missedToday = true; return '<td class="wkcell hide-m"><span class="dot err">' + I('x', 14, '#D92D20') + '</span></td>';
       }).join('');
       var st = !p.reminder ? '<span class="mut">Not tracked</span>' : missedToday ? pill('Missed today', 'err') : missed ? pill(missed + ' missed', 'err') : pill(cnt + ' of ' + worked, 'ok');
-      var uj = p.usualJob && job(p.usualJob) ? job(p.usualJob).name : (p.role === 'Field Supervisor' ? 'New construction only' : '—');
-      return '<tr><td class="job"><div style="display:flex;align-items:center;gap:8px;white-space:nowrap"><span class="av sm">' + p.ini + '</span>' + esc(p.short) + '</div></td><td class="hide-m">' + esc(uj) + '</td>' + dots.replace(/<td class="wkcell">/g, '<td class="wkcell hide-m">') + '<td>' + st + '</td><td><button class="switch' + (p.reminder ? ' on' : '') + '" data-act="rem" data-id="' + p.id + '" role="switch" aria-checked="' + p.reminder + '" aria-label="Daily reminder for ' + esc(p.short) + '"></button></td></tr>';
+      var uj = p.usualJob && job(p.usualJob) ? job(p.usualJob).name : (p.role === 'Field Supervisor' ? 'New construction only' : '');
+      return '<tr><td class="job fn"><div class="fn-w"><span class="av sm">' + p.ini + '</span><div class="fn-t"><div class="fn-n">' + esc(p.short) + '</div>' + (uj ? '<div class="fn-j">' + esc(uj) + '</div>' : '') + '</div></div></td>' + dots + '<td class="fst">' + st + '</td><td><button class="switch' + (p.reminder ? ' on' : '') + '" data-act="rem" data-id="' + p.id + '" role="switch" aria-checked="' + p.reminder + '" aria-label="Daily reminder for ' + esc(p.short) + '"></button></td></tr>';
     }).join('');
-    var mon0 = dObj(days[0]), range = mon0.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' to ' + (fri.getMonth() === mon0.getMonth() ? fri.getDate() : fri.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    var mon0 = dObj(days[0]), range = mon0.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' to ' + (sun.getMonth() === mon0.getMonth() ? sun.getDate() : sun.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    var dh = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map(function (d) { return '<th class="wkcell hide-m">' + d + '</th>'; }).join('');
+    var dc = days.map(function () { return '<col class="c-d hide-m">'; }).join('');
     return '<div class="toprow"><h1 class="h1">Foremen</h1><button class="obtn tertiary" data-act="soon">' + I('plus', 18) + 'Add foreman</button></div>' +
-      '<div class="filters wk">' + dd('week', 'this', [['this', 'This week · ' + range]]) + '<span class="mut" style="font:14px var(--in)">Who sent a report each workday</span></div>' +
-      '<div class="tbl"><div style="overflow-x:auto"><table class="fmt"><colgroup><col class="c-n"><col class="c-j hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-d hide-m"><col class="c-w"><col class="c-r"></colgroup><thead><tr><th>FOREMAN</th><th class="hide-m">USUAL JOB</th><th class="hide-m">MON</th><th class="hide-m">TUE</th><th class="hide-m">WED</th><th class="hide-m">THU</th><th class="hide-m">FRI</th><th>THIS WEEK</th><th><span class="hide-m">DAILY REMINDER</span><span class="show-m" title="Daily reminder">' + I('bell', 16) + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
-      '<div class="remc"><div class="sec-t" style="font-size:15px;color:var(--mut)">Reminders</div><div class="r">' + I('bell', 20) + '<span style="flex:1">Anyone at MKI can sign in and send a report. People with Daily reminder on are expected every workday: if they haven’t sent one by 5:30 PM they get a text, and if it’s still missing at 7 PM you get an email.</span><button class="obtn link" data-act="soon">Change times</button></div></div>';
+      '<div class="filters wk">' + dd('week', 'this', [['this', 'This week · ' + range]]) + '<span class="mut" style="font:14px var(--in)">Who sent a report each day</span></div>' +
+      '<div class="tbl"><div style="overflow-x:auto"><table class="fmt"><colgroup><col class="c-n">' + dc + '<col class="c-w"><col class="c-r"></colgroup><thead><tr><th>FOREMAN</th>' + dh + '<th>THIS WEEK</th><th><span class="hide-m">REMINDER</span><span class="show-m" title="Daily reminder">' + I('bell', 16) + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
+      '<div class="remc"><div class="sec-t" style="font-size:15px;color:var(--mut)">Reminders</div><div class="r">' + I('bell', 20) + '<span style="flex:1">Anyone at MKI can sign in and send a report any day of the week. People with Daily reminder on are expected Monday to Friday: if they haven’t sent one by 5:30 PM they get a text, and if it’s still missing at 7 PM you get an email. Weekend reports show up here but are never counted as missed.</span><button class="obtn link" data-act="soon">Change times</button></div></div>';
   }
 
   /* ---------------- events ---------------- */

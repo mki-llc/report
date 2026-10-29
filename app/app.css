@@ -400,9 +400,19 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 .sugg .sg:first-child+.sg-note,.sugg .sg-note:first-child{border-top:0;margin-top:0}
 /* Foremen table: fixed columns so nothing shifts when a status changes */
 @media (min-width:1024px){
-  table.fmt{table-layout:fixed}
-  .fmt .c-n{width:190px}.fmt .c-d{width:70px}.fmt .c-w{width:160px}.fmt .c-r{width:150px}
+  table.fmt{table-layout:fixed;min-width:680px}
+  .fmt .c-n{width:auto}.fmt .c-d{width:42px}.fmt .c-w{width:134px}.fmt .c-r{width:96px}
+  .fmt th.wkcell,.fmt td.wkcell{padding-left:4px;padding-right:4px;text-align:center}
+  .fmt td.fst,.fmt th:nth-last-child(2){padding-left:12px;padding-right:8px}
+  .fmt td.fn,.fmt th:first-child{padding-right:8px}
 }
+@media (min-width:1024px) and (max-width:1279px){.fmt td.fn .av.sm{display:none}}
+@media (min-width:1280px){.fmt .c-d{width:56px}.fmt .c-w{width:160px}.fmt .c-r{width:120px}}
+.fmt .wkcell .dot{margin:0 auto}
+.fn-w{display:flex;align-items:center;gap:10px;min-width:0}
+.fn-t{min-width:0}
+.fn-n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fn-j{word-break:normal;overflow-wrap:normal;font:400 13px/1.3 var(--in);color:var(--mut);margin-top:2px;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .fmt th:last-child,.fmt td:last-child{text-align:right}
 .fmt td:last-child .switch{display:inline-block;vertical-align:middle}
 @media (max-width:1023px){

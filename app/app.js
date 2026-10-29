@@ -47,13 +47,21 @@
     if (!b) { b = document.createElement('div'); b.id = 'toasts'; b.className = 'toasts'; document.body.appendChild(b); }
     return b;
   }
+  // Sit above a sticky action bar (GC report) so toasts never cover its buttons, even as the bar moves on scroll.
+  function placeToasts() {
+    var box = document.getElementById('toasts'); if (!box || !box.firstChild) return;
+    var bar = document.querySelector('.gcbar'), br = bar && bar.getBoundingClientRect();
+    box.style.bottom = br && br.top < window.innerHeight && br.bottom > 0 ? (window.innerHeight - br.top + 12) + 'px' : '';
+  }
+  window.addEventListener('scroll', placeToasts, { passive: true }); window.addEventListener('resize', placeToasts);
   function toast(title, opt) {
     if (typeof opt === 'function') opt = { action: { label: 'Undo', fn: opt } };
     else if (typeof opt === 'string') opt = { kind: opt };
     opt = opt || {};
     var kind = opt.kind || 'success', box = toastBox();
     [].forEach.call(box.children, function (o) { if (o.dataset.key === title + (opt.msg || '')) o.remove(); });
-    while (box.children.length >= (window.innerWidth < 700 ? 2 : 3)) box.firstChild.remove();
+    // Over the limit, drop the oldest toast that isn't an error: errors stay until someone closes them.
+    while (box.children.length >= (window.innerWidth < 700 ? 2 : 3)) { var old = box.querySelector('.toast:not(.t-error)') || box.firstChild; old.remove(); }
     var t = document.createElement('div');
     t.className = 'toast t-' + kind; t.dataset.key = title + (opt.msg || '');
     t.setAttribute('role', kind === 'error' || kind === 'warning' ? 'alert' : 'status');
@@ -66,18 +74,19 @@
     function pause() { if (kind === 'error' || !timer) return; clearTimeout(timer); timer = null; left = Math.max(1500, left - (Date.now() - started)); }
     if (opt.action) { var ab = t.querySelector('.tact'); ab.textContent = opt.action.label; ab.onclick = function () { close(); opt.action.fn(); }; }
     t.querySelector('.tclose').onclick = close;
-    t.addEventListener('mouseenter', pause); t.addEventListener('mouseleave', function () { if (!timer) run(); });
+    t.addEventListener('mouseenter', pause); t.addEventListener('mouseleave', function () { if (!timer && !t.contains(document.activeElement)) run(); });
     t.addEventListener('focusin', pause); t.addEventListener('focusout', function () { if (!timer && !t.matches(':hover')) run(); });
     // Sit above a sticky action bar (GC report) so toasts never cover its buttons.
-    var bar = document.querySelector('.gcbar'), br = bar && bar.getBoundingClientRect();
-    box.style.bottom = br && br.top < window.innerHeight && br.bottom > 0 ? (window.innerHeight - br.top + 12) + 'px' : '';
-    box.appendChild(t); run();
+    box.appendChild(t); placeToasts(); run();
     return t;
   }
   // Field validation, from the KachDan input + field-label + field-hint components: the label, border and
   // hint all take the state together, and a status hint always pairs its color with an icon.
+  var fmemo = {};
   function fieldState(id, theme, msg) {
     var c = document.getElementById(id); if (!c) return;
+    // Page fields (not dialogs) keep their state when a live refresh redraws the same page.
+    if (!$layer.contains(c)) { if (theme) fmemo[id] = { h: location.hash, t: theme, m: msg }; else delete fmemo[id]; }
     var f = c.closest('.fld'); if (!f) return;
     var h = f.querySelector('.fhint');
     if (!h) { h = document.createElement('div'); h.className = 'fhint'; h.id = id + '-hint'; f.appendChild(h); }
@@ -122,10 +131,15 @@
   // started Friday is still there Monday. Empty ones from earlier days start fresh.
   function draftAge(d) { return Math.round((dObj(todayKey()) - dObj(d.day || d.date)) / 864e5); }
   function D() { var s = S(), t = todayKey(); if (!s.draft || (s.draft.date !== t && !(hasContent(s.draft) && draftAge(s.draft) <= 30))) { s.draft = newDraft(); } return fixDraft(s.draft); }
-  var saveT, warned = false; function saveSoon() { clearTimeout(saveT); saveT = setTimeout(function () { if (!DB.save() && !warned) { warned = true; toast('Phone almost full', { kind: 'warning', msg: 'Your report is kept while the app is open.' }); } }, 300); }
+  var saveT, warned = false, saveFailed = false; function saveNow() { clearTimeout(saveT); saveT = null; saveFailed = !DB.save(); return !saveFailed; } function saveSoon() { clearTimeout(saveT); saveT = setTimeout(function () { if (!saveNow() && !warned) { warned = true; toast('Phone almost full', { kind: 'warning', msg: 'Your report is kept while the app is open.' }); } }, 300); }
 
   /* ---------------- router ---------------- */
   function route() {
+    route0();
+    for (var k in fmemo) { if (fmemo[k].h !== location.hash) delete fmemo[k]; else if (document.getElementById(k)) fieldState(k, fmemo[k].t, fmemo[k].m); }
+    placeToasts();
+  }
+  function route0() {
     if (LIVE.on && !LIVE.ready) return;
     closeLayer();
     var h = location.hash.replace(/^#\/?/, '') || '', parts = h.split('/');
@@ -836,17 +850,18 @@
       });
     });
   }
-  var gcSaveT = null;
+  var gcSaveT = null, gcPending = null;
   function gcSave(r, now) {
     var v = rv(r); v.savedAt = Date.now(); v.reviewedBy = S().me; DB.save(); r._dirty = true;
-    clearTimeout(gcSaveT);
+    clearTimeout(gcSaveT); gcSaveT = null; gcPending = null;
     var st = document.getElementById('gcsave');
     if (!LIVE.on) { r._dirty = false; if (st) st.textContent = 'Saved on this device'; return Promise.resolve(); }
     if (!LIVE.hasReviewColumn()) { if (st) st.textContent = 'Can’t save edits yet: Alex needs to open the app once to finish an update.'; return Promise.resolve(); }
     if (st) st.textContent = 'Saving…';
     var go2 = function () { return LIVE.saveReview(r).then(function () { r._dirty = false; var e = document.getElementById('gcsave'); if (e) e.textContent = 'All changes saved'; }, function (e) { console.error(e); var x = document.getElementById('gcsave'); if (x) x.textContent = e && e.status === 403 ? 'Your account can’t save changes to this report.' : 'Not saved: check the connection.'; throw e; }); };
     if (now) return go2();
-    return new Promise(function (res) { gcSaveT = setTimeout(function () { go2().then(res, res); }, 800); });
+    gcPending = r;
+    return new Promise(function (res) { gcSaveT = setTimeout(function () { gcSaveT = null; gcPending = null; go2().then(res, res); }, 800); });
   }
   // "Foreman wrote" box under a section, shown only when the office text differs from the foreman's.
   function gcOrigHTML(r, k) {
@@ -1110,6 +1125,7 @@
         gcMake(rf).then(function (out) { gcText('Saving to the job folder…'); return LIVE.savePdf(rf, out.name, out.blob).then(function () { closeLayer(); toast('Saved in the job folder', { msg: out.name }); }); }).catch(gcFail); break;
       case 'gcmail':
         var rm = gcReport(t.dataset.id), jm2 = job(rm.job), to = String((jm2 && jm2.gcEmail) || '').split(/[,;\s]+/).filter(function (x) { return /@/.test(x); });
+        if (!jm2) { toast('Approve the job first', { kind: 'error', msg: 'Email to GC needs the job’s GC email. Approve the job request on the Jobs page and add it there.' }); break; }
         var ve = validEmails(jm2 && jm2.gcEmail), ge = document.getElementById('gc-e');
         gcMissingWarn();
         if (!ve.list.length || ve.bad.length) { fieldState('gc-e', 'err', !ve.list.length ? 'Add the GC’s email to send the report' : 'Check this address: ' + ve.bad[0] + '. Example: name@company.com'); if (ge) { ge.scrollIntoView({ block: 'center' }); ge.focus(); } break; }
@@ -1152,6 +1168,7 @@
         if (!nm2.value.trim()) { bad(nm2, 'Add the job name'); return; }
         if (!/^[A-Za-z0-9-]{1,20}$/.test(num)) { bad(nf, 'Use numbers and dashes only, like 26-3009'); return; }
         if (job(num)) { bad(nf, 'Job ' + num + ' already exists'); return; }
+        var gev = validEmails(document.getElementById('aj-ge').value); if (gev.bad.length) { bad(document.getElementById('aj-ge'), 'Check this address: ' + gev.bad[0] + '. Example: name@company.com'); return; }
         var nj = { num: num, name: nm2.value.trim().slice(0, 80), active: true, foreman: document.getElementById('aj-f').value || null, address: document.getElementById('aj-a').value.trim().slice(0, 200), gc: document.getElementById('aj-gc').value.trim(), gcProject: document.getElementById('aj-gp').value.trim(), gcEmail: document.getElementById('aj-ge').value.trim() }, moved = [];
         S().jobs.push(nj);
         if (t.dataset.req) { var rqo = S().requests.filter(function (x) { return x.id === t.dataset.req; })[0]; if (rqo) S().reports.forEach(function (r) { if (r.jobName === rqo.name && r.job.indexOf('new:') === 0) { r.job = num; r.jobName = null; moved.push(r); } }); S().requests = S().requests.filter(function (x) { return x.id !== t.dataset.req; }); }
@@ -1161,6 +1178,7 @@
       case 'saveedit':
         var ej2 = job(t.dataset.num), en = document.getElementById('aj-n'); fieldState('aj-n');
         if (!en.value.trim()) { fieldState('aj-n', 'err', 'Add the job name'); en.focus(); return; }
+        var gev2 = validEmails(document.getElementById('aj-ge').value); if (gev2.bad.length) { fieldState('aj-ge', 'err', 'Check this address: ' + gev2.bad[0] + '. Example: name@company.com'); document.getElementById('aj-ge').focus(); return; }
         var before = { name: ej2.name, address: ej2.address, foreman: ej2.foreman, gc: ej2.gc, gcProject: ej2.gcProject, gcEmail: ej2.gcEmail };
         ej2.name = en.value.trim().slice(0, 80); ej2.address = document.getElementById('aj-a').value.trim().slice(0, 200); ej2.foreman = document.getElementById('aj-f').value || null; ej2.gc = document.getElementById('aj-gc').value.trim(); ej2.gcProject = document.getElementById('aj-gp').value.trim(); ej2.gcEmail = document.getElementById('aj-ge').value.trim();
         DB.save(); closeLayer(); route();
@@ -1297,16 +1315,27 @@
   var updV = null, updAt = 0;
   function safeToUpdate() {
     var a = document.activeElement;
-    return !sending && !$layer.firstChild && !/^#\/report/.test(location.hash) && !(a && /INPUT|TEXTAREA|SELECT/.test(a.tagName));
+    if (sending || $layer.firstChild || /^#\/(report|sent|off)/.test(location.hash) || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) return false;
+    // Save anything still waiting first. Never reload while work exists only in memory.
+    if (saveT) saveNow();
+    if (saveFailed) return false;
+    if (gcPending) { gcSave(gcPending, true).then(function () { checkUpdate(false); }, function () {}); return false; }
+    return !S().reports.some(function (r) { return r._dirty; });
   }
   function applyUpdate() {
-    if (!updV || !safeToUpdate()) return false;
+    if (!updV) return false;
+    // Tried this version already (the server's page may still be the old one): stop, and check again later.
+    var tried = null; try { tried = sessionStorage.getItem('mki-upd'); } catch (e) {}
+    if (tried === updV || new RegExp('[?&]v=' + updV.replace(/\W/g, '\\$&') + '(&|$)').test(location.search)) { updV = null; return false; }
+    if (!safeToUpdate()) return false;
+    try { sessionStorage.setItem('mki-upd', updV); } catch (e) {}
     // A new address skips the browser's copy of the old page.
     location.replace(location.pathname + '?v=' + encodeURIComponent(updV) + location.hash);
     return true;
   }
+  window.addEventListener('pagehide', function () { if (saveT) saveNow(); });
   function checkUpdate(force) {
-    if (applyUpdate()) return;
+    if (updV) { applyUpdate(); return; }
     if (!force && Date.now() - updAt < 60000) return;
     updAt = Date.now();
     if (!window.fetch || !window.APP_V || /localhost|127\.0\.0\.1/.test(location.hostname)) return;

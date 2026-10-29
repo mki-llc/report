@@ -100,7 +100,10 @@
       er.timeout = timedOut; er.cancelled = !timedOut && c.cancelledByUser; er.network = true; throw er;
     });
   }
-  LIVE.cancel = function () { inflight.slice().forEach(function (c) { c.cancelledByUser = true; c.abort(); }); };
+  var stopAsked = false;
+  LIVE.cancel = function () { stopAsked = true; inflight.slice().forEach(function (c) { c.cancelledByUser = true; c.abort(); }); };
+  // Between steps of a send: if Stop was pressed, end here.
+  function stopCheck(v) { if (stopAsked) { var e = new Error('Stopped'); e.cancelled = true; throw e; } return v; }
   function send(url, opts, tries) {
     tries = tries || 0;
     var big = opts && opts.body && typeof Blob !== 'undefined' && opts.body instanceof Blob;
@@ -172,6 +175,22 @@
       return !!(L.jobs && L.people && L.reports);
     });
   }
+  // Columns added after the lists were first made. The office adds them quietly the first time it opens
+  // the app; if that isn't possible the app keeps working without them.
+  var cols = {};
+  var LATER = { jobs: ['GC', 'GCEmail', 'GCProject'], reports: ['OfficeReview'] };
+  function ensureColumns() {
+    return Promise.all(['jobs', 'reports'].map(function (k) {
+      return getAll(listPath(L[k]) + '/columns?$select=name').then(function (have) {
+        var names = have.map(function (c) { return c.name; });
+        return Promise.all(LATER[k].map(function (n) {
+          if (names.indexOf(n) > -1) { cols[n] = true; return null; }
+          var def = n === 'OfficeReview' ? { name: n, text: { allowMultipleLines: true, linesForEditing: 6 } } : { name: n, text: {} };
+          return api('POST', listPath(L[k]) + '/columns', def, MANAGE).then(function () { cols[n] = true; }, function (e) { console.warn('column ' + n, e); });
+        }));
+      });
+    })).catch(function (e) { console.warn('columns', e); });
+  }
   function needSetup() {
     screen('ONE-TIME SETUP', 'The report app needs to set up its lists on the MKI Field Reports site. This is done once, by Alex or another Microsoft admin.<br><br>Microsoft will ask you to approve access. Foremen won’t see that screen.', btn('setup', 'SET UP THE APP') + btn('signout', 'Sign in as someone else', 'link'));
   }
@@ -185,6 +204,7 @@
     return p;
   }
   function lines(t) { return String(t || '').split(/\n+/).map(function (s) { return s.replace(/^\s*\d+\.\s*/, '').trim(); }).filter(Boolean); }
+  function parseReview(t) { if (!t) return null; try { return JSON.parse(t); } catch (e) { return null; } }
   function toRep(it) {
     var f = it.fields || {}, data = {}; try { data = JSON.parse(f.AppData || '{}'); } catch (e) { data = {}; }
     var cb = it.createdBy && it.createdBy.user || {};
@@ -195,7 +215,7 @@
       job: f.JobNumber || ('new:' + (f.JobName || '')), jobName: f.JobNumber ? null : (f.JobName || ''),
       weather: f.Weather || '', work: data.work || lines(f.Work), plan: data.plan || lines(f.Plan),
       mat: { yes: !!f.NeedsMaterials, text: f.Materials || '' }, delay: { yes: !!f.HadDelay, text: f.Delays || '' }, safety: { yes: !!f.SafetyIssue, text: f.Safety || '' },
-      photos: +f.Photos || 0, videos: +f.Videos || 0, mediaFolder: f.MediaFolderId || null, mediaUrl: f.MediaFolderUrl || null, note: data.requestNote || '', photoData: null
+      photos: +f.Photos || 0, videos: +f.Videos || 0, mediaFolder: f.MediaFolderId || null, mediaUrl: f.MediaFolderUrl || null, note: data.requestNote || '', taken: data.taken || [], recordPdf: data.recordPdf || '', review: parseReview(f.OfficeReview), photoData: null
     };
   }
   function load() {
@@ -203,7 +223,7 @@
     var sel = '/items?$expand=fields&$top=500';
     return Promise.all([getAll(listPath(L.jobs) + sel), getAll(listPath(L.people) + sel), getAll(listPath(L.reports) + sel)]).then(function (r) {
       var s = DB.state, myEmail = String(me.mail || me.userPrincipalName || '').toLowerCase();
-      s.jobs = r[0].map(function (it) { var f = it.fields; return { itemId: it.id, num: f.Title, name: f.JobName || f.Title, active: f.Active !== false, foreman: f.Foreman || null, address: f.Address || '' }; }).filter(function (j) { return j.num; });
+      s.jobs = r[0].map(function (it) { var f = it.fields; return { itemId: it.id, num: f.Title, name: f.JobName || f.Title, active: f.Active !== false, foreman: f.Foreman || null, address: f.Address || '', gc: f.GC || '', gcEmail: f.GCEmail || '', gcProject: f.GCProject || '' }; }).filter(function (j) { return j.num; });
       s.people = r[1].map(function (it) { var f = it.fields; return mkPerson(String(f.Title || '').toLowerCase(), f.FullName, { itemId: it.id, role: f.Role || '', usualJob: f.UsualJob || null, reminder: !!f.Reminder }); }).filter(function (p) { return p.id; });
       s.reports = r[2].map(toRep).filter(function (x) { return x.date; });
       // anyone who sent a report but isn't on the people list still shows up by name
@@ -214,7 +234,7 @@
       s.me = myEmail;
       s.role = OFFICE_TITLES.test(me.jobTitle || '') || OFFICE_TITLES.test(mine.role || '') ? 'office' : 'foreman';
       s.people.forEach(function (p) { p.crew = !p.extra && FIELD_TITLES.test(p.role || ''); });
-      return (s.role === 'office' ? syncDirectory() : Promise.resolve()).then(function () { finishLoad(s); });
+      return (s.role === 'office' ? Promise.all([syncDirectory(), ensureColumns()]) : Promise.resolve()).then(function () { finishLoad(s); });
     });
   }
   // Office only: read MKI's Microsoft 365 users and use them as the crew list. Needs the
@@ -291,8 +311,8 @@
       var s = DB.state, old = {}, fresh = r[0].map(toRep).filter(function (x) { return x.date; });
       s.reports.forEach(function (x) { old[x.id] = x; });
       var added = fresh.filter(function (x) { return !old[x.id]; });
-      var changed = added.length || fresh.length !== s.reports.length || fresh.some(function (x) { var o = old[x.id]; return o && (o.job !== x.job || o.mediaFolder !== x.mediaFolder || o.photos !== x.photos); });
-      var jobs = r[1].map(function (it) { var f = it.fields; return { itemId: it.id, num: f.Title, name: f.JobName || f.Title, active: f.Active !== false, foreman: f.Foreman || null, address: f.Address || '' }; }).filter(function (j) { return j.num; });
+      var changed = added.length || fresh.length !== s.reports.length || fresh.some(function (x) { var o = old[x.id]; return o && (o.job !== x.job || o.mediaFolder !== x.mediaFolder || o.photos !== x.photos || JSON.stringify(o.review) !== JSON.stringify(x.review)); });
+      var jobs = r[1].map(function (it) { var f = it.fields; return { itemId: it.id, num: f.Title, name: f.JobName || f.Title, active: f.Active !== false, foreman: f.Foreman || null, address: f.Address || '', gc: f.GC || '', gcEmail: f.GCEmail || '', gcProject: f.GCProject || '' }; }).filter(function (j) { return j.num; });
       var jobsChanged = JSON.stringify(jobs) !== JSON.stringify(s.jobs);
       if (!changed && !jobsChanged) return;
       fresh.forEach(function (x) { var o = old[x.id]; if (o && o.photoData && o.mediaFolder === x.mediaFolder) x.photoData = o.photoData; });
@@ -374,7 +394,7 @@
         blobs.forEach(function (b, i) {
           if (!b || already.indexOf(i) > -1) return;
           chain = chain.then(function () {
-            n++; progress(n, todo, total ? done / total : 0);
+            stopCheck(); n++; progress(n, todo, total ? done / total : 0);
             return uploadOne(folder + '/' + String(i + 1).padStart(2, '0') + extOf(media[i], b), b, function (bytes) { done += bytes; progress(n, todo, total ? done / total : 1); }).then(function () { if (onUploaded) onUploaded(i); });
           });
         });
@@ -387,11 +407,12 @@
     return getDrive().then(function () {
       return getAll('/drives/' + drive.id + '/items/' + rep.mediaFolder + '/children?$expand=thumbnails&$top=200');
     }).then(function (kids) {
-      kids = kids.filter(function (k) { return k.file; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+      rep.pdfs = kids.filter(function (k) { return k.file && /\.pdf$/i.test(k.name); }).map(function (k) { return { name: k.name, url: k.webUrl }; });
+      kids = kids.filter(function (k) { return k.file && /^(image|video)\//.test(k.file.mimeType || '') || k.image || k.video; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
       rep.photoData = kids.map(function (k) {
         var th = k.thumbnails && k.thumbnails[0], thumb = th && ((th.large || th.medium || th.small) || {}).url || null;
         var vid = !!k.video || /^video\//.test((k.file || {}).mimeType || '');
-        var o = { thumb: thumb, src: k['@microsoft.graph.downloadUrl'] };
+        var o = { thumb: thumb, src: k['@microsoft.graph.downloadUrl'], id: k.id, name: k.name };
         if (vid) { o.v = 1; o.dur = k.video && k.video.duration ? k.video.duration / 1000 : 0; o.thumb = thumb; }
         return o;
       });
@@ -410,7 +431,7 @@
       JobNumber: num, JobName: name, Weather: rep.weather || '', Work: numbered(rep.work), Plan: numbered(rep.plan),
       NeedsMaterials: !!rep.mat.yes, Materials: rep.mat.text || '', HadDelay: !!rep.delay.yes, Delays: rep.delay.text || '', SafetyIssue: !!rep.safety.yes, Safety: rep.safety.text || '',
       Photos: rep.photos, Videos: rep.videos, MediaFolderId: folder ? folder.id : '', MediaFolderUrl: folder ? folder.url : '',
-      AppData: JSON.stringify({ v: 1, work: rep.work, plan: rep.plan, requestNote: rep.note || '' })
+      AppData: JSON.stringify({ v: 1, work: rep.work, plan: rep.plan, requestNote: rep.note || '', taken: rep.taken || [], recordPdf: rep.recordPdf || '' })
     };
   }
   // Photos go up first, then the report row, so a dropped signal never leaves a report without its photos.
@@ -421,17 +442,72 @@
   // opts: { uploaded: [indexes already in SharePoint], onUploaded(i), tried: true if an earlier attempt may have saved the row }
   LIVE.sendReport = function (rep, media, progress, opts) {
     opts = opts || {};
-    rep.personName = me.displayName;
+    rep.personName = me.displayName; stopAsked = false;
     // Sign-in is checked before anything is uploaded, so an expired sign-in can't leave half a folder behind.
-    return token(BASE).then(function () {
+    return token(BASE).then(stopCheck).then(function () {
       return uploadMedia(rep, media, progress, opts.uploaded, opts.onUploaded);
     }).then(function (folder) {
       progress(-1);
+      // The foreman's "as sent" PDF goes in the same folder as the photos, so the job folder has the full record.
+      if (!opts.makeRecord) return folder;
+      stopCheck();
+      return reportFolder(rep).then(function (path) {
+        return opts.makeRecord().then(function (pdf) {
+          stopCheck();
+          if (!pdf) return folder;
+          return uploadOne(path + '/' + pdf.name, pdf.blob, function () {}).then(function () { rep.recordPdf = pdf.name; return folder || folderInfo(path); });
+        }).catch(function (e) { if (e && e.cancelled) throw e; console.warn('record pdf', e); return folder; });
+      });
+    }).then(stopCheck).then(function (folder) {
       if (folder) { rep.mediaFolder = folder.id; rep.mediaUrl = folder.url; rep.mediaPath = folder.path; }
       return (opts.tried ? findReport(rep.id).catch(function () { return null; }) : Promise.resolve(null)).then(function (found) {
         if (found) return found;
         return api('POST', listPath(L.reports) + '/items', { fields: repFields(rep, folder) });
       }).then(function (it) { rep.itemId = it.id; return rep; });
+    });
+  };
+  LIVE.hasReviewColumn = function () { return !!cols.OfficeReview; };
+  LIVE.saveReview = function (r) {
+    if (!cols.OfficeReview) return Promise.reject(Object.assign(new Error('Review column missing'), { status: 0 }));
+    return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { OfficeReview: JSON.stringify(r.review) });
+  };
+  // Saves a PDF next to the report's photos (or in a new report folder if there are none).
+  LIVE.savePdf = function (r, name, blob) {
+    var p = r.mediaFolder ? api('GET', '/drives/' + (drive && drive.id) + '/items/' + r.mediaFolder + '?$select=id,webUrl,name,parentReference').catch(function () { return null; }) : Promise.resolve(null);
+    return getDrive().then(function () { return p; }).then(function (f) {
+      if (f && f.parentReference && f.parentReference.path) return f.parentReference.path.replace(/^\/drive\/root:\/?/, '') + '/' + f.name;
+      return reportFolder({ job: r.job, jobName: r.jobName, date: r.date, personName: r.personName, sentAt: r.sentAt });
+    }).then(function (path) {
+      return uploadOne(decodeURIComponent(path) + '/' + name, blob, function () {}).then(function (it) {
+        if (!r.mediaFolder) return folderInfo(decodeURIComponent(path)).then(function (fi) { r.mediaFolder = fi.id; r.mediaUrl = fi.url; return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { MediaFolderId: fi.id, MediaFolderUrl: fi.url }); }).then(function () { return it; });
+        return it;
+      });
+    });
+  };
+  // Makes an Outlook draft with the PDF attached, for the office to check and send. Returns the draft's web link.
+  LIVE.emailDraft = function (to, subject, html, name, blob) {
+    var MAIL = ['Mail.ReadWrite'];
+    return api('POST', '/me/messages', { subject: subject, body: { contentType: 'HTML', content: html }, toRecipients: to.map(function (a) { return { emailAddress: { address: a } }; }) }, MAIL).then(function (msg) {
+      if (blob.size < 3e6) {
+        return new Promise(function (res) { var fr = new FileReader(); fr.onload = function () { res(String(fr.result).split(',')[1]); }; fr.readAsDataURL(blob); }).then(function (b64) {
+          return api('POST', '/me/messages/' + msg.id + '/attachments', { '@odata.type': '#microsoft.graph.fileAttachment', name: name, contentType: 'application/pdf', contentBytes: b64 }, MAIL);
+        }).then(function () { return msg; });
+      }
+      return api('POST', '/me/messages/' + msg.id + '/attachments/createUploadSession', { AttachmentItem: { attachmentType: 'file', name: name, size: blob.size, contentType: 'application/pdf' } }, MAIL).then(function (ses) {
+        var at = 0, step = 3 * 1024 * 1024;
+        function next() {
+          var end = Math.min(at + step, blob.size);
+          return timed(ses.uploadUrl, { method: 'PUT', headers: { 'Content-Range': 'bytes ' + at + '-' + (end - 1) + '/' + blob.size, 'Content-Type': 'application/octet-stream' }, body: blob.slice(at, end) }, 120000).then(function (r) { if (!r.ok && r.status !== 200 && r.status !== 201) return handle(r); at = end; return at < blob.size ? next() : null; });
+        }
+        return next();
+      }).then(function () { return msg; });
+    }).then(function (msg) { return msg.webLink; });
+  };
+  // A report photo as a blob for the PDF (office side).
+  LIVE.photoBlob = function (item) {
+    if (!item || !item.id) return Promise.resolve(item && (item.src || item.thumb) || null);
+    return getDrive().then(function () { return api('GET', '/drives/' + drive.id + '/items/' + item.id + '?$select=id,@microsoft.graph.downloadUrl'); }).then(function (f) {
+      return timed(f['@microsoft.graph.downloadUrl'], {}, 60000).then(function (r) { if (!r.ok) throw new Error('photo ' + r.status); return r.blob(); });
     });
   };
   LIVE.patchReports = function (list) {
@@ -440,11 +516,17 @@
       return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { JobNumber: num, JobName: r.jobName || (DB.state.jobs.filter(function (j) { return j.num === r.job; })[0] || {}).name || '' });
     }));
   };
+  function jobFields(j, withNum) {
+    var f = { JobName: j.name, Active: j.active, Foreman: j.foreman || '', Address: j.address || '' };
+    if (cols.GC) { f.GC = j.gc || ''; f.GCEmail = j.gcEmail || ''; f.GCProject = j.gcProject || ''; }
+    if (withNum) f.Title = j.num;
+    return f;
+  }
   LIVE.addJob = function (j) {
-    return api('POST', listPath(L.jobs) + '/items', { fields: { Title: j.num, JobName: j.name, Active: j.active, Foreman: j.foreman || '', Address: j.address || '' } }).then(function (it) { j.itemId = it.id; jobFolders = null; return j; });
+    return api('POST', listPath(L.jobs) + '/items', { fields: jobFields(j, true) }).then(function (it) { j.itemId = it.id; jobFolders = null; return j; });
   };
   LIVE.updateJob = function (j) {
-    return api('PATCH', listPath(L.jobs) + '/items/' + j.itemId + '/fields', { JobName: j.name, Active: j.active, Foreman: j.foreman || '', Address: j.address || '' });
+    return api('PATCH', listPath(L.jobs) + '/items/' + j.itemId + '/fields', jobFields(j));
   };
   LIVE.savePerson = function (p) {
     var f = { Title: p.email || p.id, FullName: p.name, Role: p.role || '', Reminder: !!p.reminder, UsualJob: p.usualJob || '' };

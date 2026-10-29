@@ -34,6 +34,8 @@
   function sentText(r) { var p = r.sentAt.split(':'), h = +p[0], ap = h >= 12 ? 'PM' : 'AM'; return (h % 12 || 12) + ':' + p[1] + ' ' + ap; }
   function flagsOf(r) { var f = []; if (r.sentDate && r.sentDate !== r.date) f.push(['Sent late', 'neutral']); if (r.mat.yes) f.push(['Materials', 'warn']); if (r.delay.yes) f.push(['Delay', 'warn']); if (r.safety.yes) f.push(['Safety', 'err']); if (!f.filter(function (x) { return x[1] !== 'neutral'; }).length) f.push(['All clear', 'ok']); return f; }
   function pill(t, k, sm) { var ic = k === 'ok' ? 'check' : k === 'err' ? 'alert-circle' : k === 'warn' ? 'alert-triangle' : null; return '<span class="pill ' + k + '">' + (ic ? I(ic, sm ? 13 : 14) : '') + esc(t) + '</span>'; }
+  function offs() { return S().offs || (S().offs = []); }
+  function isOff(pid, dk) { return offs().some(function (o) { return o.person === pid && o.date === dk; }); }
   function toast(msg, undo) {
     var old = document.querySelector('.toast'); if (old) old.remove();
     var t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status');
@@ -89,6 +91,7 @@
       if (parts[0] === 'signin' || !me) return renderSignin();
       if (parts[0] === 'report') return renderReport();
       if (parts[0] === 'sent') return renderSent(parts[1]);
+      if (parts[0] === 'off') return renderOff(parts[1]);
       return renderStart();
     }
     if (LIVE.on && S().role !== 'office') return go(me ? '#/' : '#/signin');
@@ -132,6 +135,34 @@
       '<div class="bottom"><button class="go" data-act="start">' + (already ? 'SEND ANOTHER REPORT' : "START TODAY'S REPORT") + ' ' + I('arrow-right', 22, '#990000') + '</button>' +
       '<p class="hint">' + (already ? 'You already sent one today for ' + esc(jobName(already)) + '. Send another only if you worked a second job.' : 'Takes about 3 minutes. Tap the microphone on your keyboard to talk instead of typing.') + '</p>' +
       '<p class="who">Signed in as ' + esc(me.name) + '. <button data-act="signout">Not you?</button></p>' + (LIVE.on && S().role === 'office' ? '<p class="who"><a href="#/office" class="u" style="color:inherit">Back to office</a></p>' : '') + '</div></main>';
+  }
+
+  /* ---------------- foreman: "I'm off today" (from the 7 PM reminder email) ---------------- */
+  var offBusy = false;
+  function renderOff(dk) {
+    var k = todayKey(), me = person(S().me), back = dObj(k); back.setDate(back.getDate() - 6);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dk || '') || dk > k || dObj(dk) < back) dk = k;
+    var forDay = dk === k ? 'today' : wd(dk) + ', ' + md(dk);
+    function page(head, hint, extra) {
+      $app.innerHTML = previewBar('f') + '<main class="dark start"><div class="top"><img class="logo" src="' + LOGO + '" alt="MKI LLC"><div class="tag">END OF DAY REPORT</div><p class="weekday">' + wd(dk).toUpperCase() + '</p><p class="date">' + md(dk).toUpperCase() + '</p></div>' +
+        '<div class="bottom"><p class="offh">' + head + '</p><p class="hint">' + hint + '</p>' + (extra || '') +
+        '<p class="who">Signed in as ' + esc(me.name) + '. <button data-act="signout">Not you?</button></p></div></main>';
+    }
+    var sent = S().reports.filter(function (r) { return r.person === me.id && r.date === dk; })[0];
+    if (sent) return page('REPORT ALREADY SENT', 'You sent a report for ' + esc(forDay) + ' (' + esc(jobName(sent)) + '), so there’s nothing to mark.', '<button class="go" data-go="#/">DONE ' + I('arrow-right', 22, '#990000') + '</button>');
+    var done = '<button class="go" data-act="start">SEND A REPORT ' + I('arrow-right', 22, '#990000') + '</button>';
+    if (isOff(me.id, dk) && !offBusy) return page('YOU’RE MARKED OFF', 'No reminder for ' + esc(forDay) + '. The office sees you were off, not a missed report. Worked after all? Send a report below.', done);
+    if (offBusy) return page('SAVING…', 'One moment.');
+    var now = new Date(), o = { id: 'off-' + dk + '-' + Math.random().toString(36).slice(2, 8), date: dk, person: me.id, personName: me.name, sentDate: k, sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') };
+    if (!LIVE.on) { offs().push(o); DB.save(); return renderOff(dk); }
+    offBusy = true; page('SAVING…', 'One moment.');
+    LIVE.markOff(o).then(function () {
+      offBusy = false; offs().push(o); DB.save();
+      if (/^#\/off/.test(location.hash)) renderOff(dk);
+    }, function () {
+      offBusy = false;
+      if (/^#\/off/.test(location.hash)) page('DIDN’T SAVE', 'Couldn’t reach the office. Check your signal and try again.', '<button class="go" data-act="offretry">TRY AGAIN ' + I('arrow-right', 22, '#990000') + '</button>');
+    });
   }
 
   /* ---------------- foreman: sign in ---------------- */
@@ -604,18 +635,19 @@
     var k = todayKey(), s = S(), reps = sorted().filter(function (r) { return (!F.job || r.job === F.job) && (!F.who || r.person === F.who); });
     var today = reps.filter(function (r) { return r.date === k; });
     var dow = dObj(k).getDay(), weekend = dow === 0 || dow === 6;
-    var expected = weekend ? [] : s.people.filter(function (p) { return p.crew && p.reminder && (!F.who || p.id === F.who); });
     var sentIds = {}; today.forEach(function (r) { sentIds[r.person] = r; });
+    var offToday = weekend ? [] : s.people.filter(function (p) { return p.crew && p.reminder && !sentIds[p.id] && isOff(p.id, k) && (!F.who || p.id === F.who); });
+    var expected = weekend ? [] : s.people.filter(function (p) { return p.crew && p.reminder && offToday.indexOf(p) < 0 && (!F.who || p.id === F.who); });
     var missing = expected.filter(function (p) { return !sentIds[p.id]; });
     var mats = today.filter(function (r) { return r.mat.yes; });
     var weekStart = dObj(k); weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
     var safetyWk = reps.filter(function (r) { return r.safety.yes && dObj(r.date) >= weekStart; });
     var sentExp = expected.filter(function (p) { return sentIds[p.id]; }).length;
     function stat(l, v, sub, kind) { return '<div class="stat ' + (kind || '') + '"><div class="l">' + l + '</div><div class="v">' + v + '</div><div class="s">' + (kind ? I(kind === 'ok' ? 'check' : kind === 'err' ? 'alert-circle' : 'alert-triangle', 14) : '') + esc(sub) + '</div></div>'; }
-    var people = expected.slice(); today.forEach(function (r) { if (people.indexOf(person(r.person)) < 0) people.push(person(r.person)); });
+    var people = expected.concat(offToday); today.forEach(function (r) { if (people.indexOf(person(r.person)) < 0) people.push(person(r.person)); });
     var fms = people.map(function (p) {
-      var r = sentIds[p.id], jb = r ? jobName(r) : (p.usualJob && job(p.usualJob) ? job(p.usualJob).name : 'No report yet');
-      return '<button class="fm' + (r ? '' : ' miss') + '"' + (r ? ' data-go="#/office/report/' + r.id + '"' : '') + '><div class="av' + (r ? '' : ' gray') + '">' + p.ini + '</div><div class="t"><b>' + esc(p.short) + '</b><span>' + esc(jb) + '</span></div>' + (r ? pill('Sent ' + sentText(r), 'ok') : pill('Not sent', 'err')) + '</button>';
+      var r = sentIds[p.id], off = !r && offToday.indexOf(p) > -1, jb = r ? jobName(r) : off ? 'Marked off today' : (p.usualJob && job(p.usualJob) ? job(p.usualJob).name : 'No report yet');
+      return '<button class="fm' + (r || off ? '' : ' miss') + '"' + (r ? ' data-go="#/office/report/' + r.id + '"' : '') + '><div class="av' + (r ? '' : ' gray') + '">' + p.ini + '</div><div class="t"><b>' + esc(p.short) + '</b><span>' + esc(jb) + '</span></div>' + (r ? pill('Sent ' + sentText(r), 'ok') : off ? pill('Off today', 'neutral') : pill('Not sent', 'err')) + '</button>';
     }).join('');
     return '<div class="toprow"><div><div class="wdl">' + wd(k) + '</div><h1 class="h1">' + md(k) + '</h1></div><div class="filters">' + dd('job', F.job, jobOpts('All jobs')) + dd('who', F.who, whoOpts('All foremen')) + '</div></div>' +
       '<div class="stats">' + stat('REPORTS TODAY', weekend ? String(today.length) : sentExp + ' / ' + expected.length, weekend ? 'No reports expected on weekends' : !expected.length ? (today.length + ' sent · no daily reminders on') : missing.length ? missing.map(function (p) { return p.short; }).join(', ') + (missing.length > 1 ? ' haven’t' : ' hasn’t') + ' sent yet' : 'Everyone has sent') +
@@ -908,6 +940,7 @@
         var sent = s.reports.some(function (r) { return r.person === p.id && r.date === dk; });
         if (dk > k || dk < since) return '<td class="wkcell hide-m"><span class="dot"></span></td>';
         if (sent) { worked++; cnt++; return '<td class="wkcell hide-m"><span class="dot ok">' + I('check', 16, '#067647') + '</span></td>'; }
+        if (isOff(p.id, dk)) return '<td class="wkcell hide-m"><span class="dot off" title="Off">OFF</span></td>';
         if (weekend || !p.reminder) { if (!weekend) worked++; return '<td class="wkcell hide-m"><span class="dot"></span></td>'; }
         worked++; missed++; if (dk === k) missedToday = true; return '<td class="wkcell hide-m"><span class="dot err">' + I('x', 14, '#D92D20') + '</span></td>';
       }).join('');
@@ -921,7 +954,7 @@
     return '<div class="toprow"><h1 class="h1">Foremen</h1></div>' +
       '<div class="filters wk">' + dd('week', 'this', [['this', 'This week · ' + range]]) + '<span class="mut" style="font:14px var(--in)">Who sent a report each day</span></div>' +
       '<div class="tbl"><div style="overflow-x:auto"><table class="fmt"><colgroup><col class="c-n">' + dc + '<col class="c-w"><col class="c-r"></colgroup><thead><tr><th>FOREMAN</th>' + dh + '<th>THIS WEEK</th><th><span class="hide-m">REMINDER</span><span class="show-m" title="Daily reminder">' + I('bell', 16) + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
-      '<div class="remc"><div class="sec-t" style="font-size:15px;color:var(--mut)">How this list works</div><div class="r">' + I('info', 20) + '<span style="flex:1">Everyone whose Microsoft 365 job title includes Foreman, Field Supervisor or Superintendent shows here, and people leave the list when their account is blocked or removed. The Reminder switch marks who is expected to send a report Monday to Friday. Weekend reports show up but are never counted as missed. Automatic reminder texts and emails are not set up yet.</span></div></div>';
+      '<div class="remc"><div class="sec-t" style="font-size:15px;color:var(--mut)">How this list works</div><div class="r">' + I('info', 20) + '<span style="flex:1">Everyone whose Microsoft 365 job title includes Foreman, Field Supervisor or Superintendent shows here, and people leave the list when their account is blocked or removed. The Reminder switch marks who is expected to send a report Monday to Friday. Weekend reports show up but are never counted as missed. At 7 PM Monday to Friday, anyone with Reminder on who hasn’t sent a report gets one email from the MKI Service mailbox, with an “I’m off today” button. Days marked off show as OFF, not missed.</span></div></div>';
   }
 
   /* ---------------- events ---------------- */
@@ -932,6 +965,7 @@
     var a = t.dataset.act, d;
     switch (a) {
       case 'start': go('#/report'); break;
+      case 'offretry': route(); break;
       case 'signin': if (LIVE.on) { LIVE.signIn(); break; } S().me = 'aharbin'; DB.save(); go('#/'); break;
       case 'folder': var fr = S().reports.filter(function (x) { return x.id === t.dataset.id; })[0]; if (fr && fr.mediaUrl) window.open(fr.mediaUrl, '_blank', 'noopener'); break;
       case 'resetdemo': DB.reset(); toast('Sample data reset.'); go('#/signin'); break;

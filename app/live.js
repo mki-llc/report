@@ -151,7 +151,7 @@
       return pca.initialize().then(function () { return pca.handleRedirectPromise(); });
     }).then(function (res) {
       account = (res && res.account) || pca.getActiveAccount() || pca.getAllAccounts()[0] || null;
-      if (!account) { DB.state.me = null; LIVE.ready = true; if (!/signin/.test(location.hash)) location.hash = '#/signin'; return window.APP.route(); }
+      if (!account) { if (/^#\/off/.test(location.hash)) { try { sessionStorage.setItem('mki-return', location.hash); } catch (x) {} } DB.state.me = null; LIVE.ready = true; if (!/signin/.test(location.hash)) location.hash = '#/signin'; return window.APP.route(); }
       pca.setActiveAccount(account);
       return boot();
     }).catch(fail);
@@ -220,7 +220,7 @@
       job: f.JobNumber || ('new:' + (f.JobName || '')), jobName: f.JobNumber ? null : (f.JobName || ''),
       weather: f.Weather || '', work: data.work || lines(f.Work), plan: data.plan || lines(f.Plan),
       mat: { yes: !!f.NeedsMaterials, text: f.Materials || '' }, delay: { yes: !!f.HadDelay, text: f.Delays || '' }, safety: { yes: !!f.SafetyIssue, text: f.Safety || '' },
-      photos: +f.Photos || 0, videos: +f.Videos || 0, mediaFolder: f.MediaFolderId || null, mediaUrl: f.MediaFolderUrl || null, note: data.requestNote || '', taken: data.taken || [], recordPdf: data.recordPdf || '', review: parseReview(f.OfficeReview), photoData: null
+      photos: +f.Photos || 0, videos: +f.Videos || 0, mediaFolder: f.MediaFolderId || null, mediaUrl: f.MediaFolderUrl || null, note: data.requestNote || '', taken: data.taken || [], recordPdf: data.recordPdf || '', review: parseReview(f.OfficeReview), photoData: null, off: !!data.off
     };
   }
   function load() {
@@ -230,7 +230,8 @@
       var s = DB.state, myEmail = String(me.mail || me.userPrincipalName || '').toLowerCase();
       s.jobs = r[0].map(function (it) { var f = it.fields; return { itemId: it.id, num: f.Title, name: f.JobName || f.Title, active: f.Active !== false, foreman: f.Foreman || null, address: f.Address || '', gc: f.GC || '', gcEmail: f.GCEmail || '', gcProject: f.GCProject || '' }; }).filter(function (j) { return j.num; });
       s.people = r[1].map(function (it) { var f = it.fields; return mkPerson(String(f.Title || '').toLowerCase(), f.FullName, { itemId: it.id, role: f.Role || '', usualJob: f.UsualJob || null, reminder: !!f.Reminder }); }).filter(function (p) { return p.id; });
-      s.reports = r[2].map(toRep).filter(function (x) { return x.date; });
+      var all = r[2].map(toRep).filter(function (x) { return x.date; });
+      s.reports = all.filter(function (x) { return !x.off; }); s.offs = all.filter(function (x) { return x.off; });
       // anyone who sent a report but isn't on the people list still shows up by name
       s.reports.forEach(function (rep) { if (!s.people.some(function (p) { return p.id === rep.person; })) s.people.push(mkPerson(rep.person, rep.personName, { extra: true })); });
       var mine = s.people.filter(function (p) { return p.id === myEmail; })[0];
@@ -264,7 +265,11 @@
         var email = String(u.mail || u.userPrincipalName || '').toLowerCase();
         if (email && u.accountEnabled !== false && FIELD_TITLES.test(u.jobTitle || '')) field[email] = u;
       });
-      s.people.forEach(function (p) { p.crew = !!field[p.id]; });
+      s.people.forEach(function (p) {
+        p.crew = !!field[p.id];
+        // Blocked, removed, or no longer a field title: stop the 7 PM reminder email too.
+        if (!p.crew && p.reminder && p.itemId) { p.reminder = false; LIVE.savePerson(p).catch(function (e) { console.warn('save person', e); }); }
+      });
       Object.keys(field).forEach(function (email) {
         var u = field[email], p = s.people.filter(function (x) { return x.id === email; })[0];
         if (!p) {
@@ -290,10 +295,10 @@
       LIVE.ready = true;
       var h = location.hash.replace(/^#\/?/, '');
       // After Microsoft sends you back, the address can hold sign-in leftovers, so anything that isn't a screen goes home.
-      var known = /^(office|report|sent)/.test(h);
+      var known = /^(office|report|sent|off)/.test(h);
       // Coming back from a Microsoft sign-in that interrupted something: go back to that screen.
       var back = null; try { back = sessionStorage.getItem('mki-return'); sessionStorage.removeItem('mki-return'); } catch (x) {}
-      if (back && /^#\/(office|report)/.test(back)) { h = back.replace(/^#\/?/, ''); known = true; location.hash = back; if (/^#\/report/.test(back)) setTimeout(function () { window.APP.toast('You’re signed in again. Tap Send to finish your report.'); }, 600); }
+      if (back && /^#\/(office|report|off)/.test(back)) { h = back.replace(/^#\/?/, ''); known = true; location.hash = back; if (/^#\/report/.test(back)) setTimeout(function () { window.APP.toast('You’re signed in again. Tap Send to finish your report.'); }, 600); }
       if (s.role === 'office' && !known) location.hash = '#/office';
       else if (!known || (s.role !== 'office' && /^office/.test(h))) location.hash = '#/';
       window.APP.route();
@@ -313,13 +318,14 @@
     refreshing = true;
     var sel = '/items?$expand=fields&$top=500';
     Promise.all([getAll(listPath(L.reports) + sel), getAll(listPath(L.jobs) + sel)]).then(function (r) {
-      var s = DB.state, old = {}, fresh = r[0].map(toRep).filter(function (x) { return x.date; });
+      var s = DB.state, old = {}, every = r[0].map(toRep).filter(function (x) { return x.date; }), fresh = every.filter(function (x) { return !x.off; }), offs = every.filter(function (x) { return x.off; });
+      var offsChanged = offs.length !== (s.offs || []).length; s.offs = offs;
       s.reports.forEach(function (x) { old[x.id] = x; });
       var added = fresh.filter(function (x) { return !old[x.id]; });
       var changed = added.length || fresh.length !== s.reports.length || fresh.some(function (x) { var o = old[x.id]; return o && (o.job !== x.job || o.mediaFolder !== x.mediaFolder || o.photos !== x.photos || (!o._dirty && JSON.stringify(o.review) !== JSON.stringify(x.review))); });
       var jobs = r[1].map(function (it) { var f = it.fields; return { itemId: it.id, num: f.Title, name: f.JobName || f.Title, active: f.Active !== false, foreman: f.Foreman || null, address: f.Address || '', gc: f.GC || '', gcEmail: f.GCEmail || '', gcProject: f.GCProject || '' }; }).filter(function (j) { return j.num; });
       var jobsChanged = JSON.stringify(jobs) !== JSON.stringify(s.jobs);
-      if (!changed && !jobsChanged) return;
+      if (!changed && !jobsChanged && !offsChanged) return;
       fresh.forEach(function (x) {
         var o = old[x.id]; if (!o) return;
         if (o.photoData && o.mediaFolder === x.mediaFolder) { x.photoData = o.photoData; x.pdfs = o.pdfs; }
@@ -478,6 +484,10 @@
         return api('POST', listPath(L.reports) + '/items', { fields: repFields(rep, folder) });
       }).then(function (it) { rep.itemId = it.id; return rep; });
     });
+  };
+  // "I'm off today" from the reminder email: a row in the Reports list marked off, so the 7 PM email skips that day.
+  LIVE.markOff = function (o) {
+    return api('POST', listPath(L.reports) + '/items', { fields: { Title: o.id, ReportDate: o.date, SentDate: o.sentDate, SentAt: o.sentAt, PersonEmail: o.person, PersonName: o.personName, JobNumber: '', JobName: '', AppData: JSON.stringify({ v: 1, off: true }) } }).then(function (it) { o.itemId = it.id; return o; });
   };
   LIVE.hasReviewColumn = function () { return !!cols.OfficeReview; };
   LIVE.markRecord = function (r, name) {

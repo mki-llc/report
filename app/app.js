@@ -773,7 +773,8 @@
       return '<button class="ptile ' + cls + '" data-act="viewer" data-id="' + r.id + '" data-i="' + i + '" aria-label="Open item ' + (i + 1) + ' of ' + r.photos + '"' + (th ? ' style="background:url(' + th + ') center/cover"' : '') + '>' + inner + playBadge(it) + more + '</button>';
     }
     return backLink() +
-      '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + (late ? shortDate(r.sentDate) + ' ' : '') + sentText(r) + '</p></div><div class="filters">' + (LIVE.on && r.mediaUrl ? '<button class="obtn tertiary" data-act="folder" data-id="' + r.id + '">' + I('folder', 18) + 'Open report folder</button>' : '') + '<button class="obtn primary" data-act="gcopen" data-id="' + r.id + '">' + I('file-text', 18, '#fff') + 'GC report</button></div></div>' +
+      '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + (late ? shortDate(r.sentDate) + ' ' : '') + sentText(r) + '</p></div><div class="filters">' + (LIVE.on && r.mediaUrl ? '<button class="obtn tertiary" data-act="folder" data-id="' + r.id + '">' + I('folder', 18) + 'Open report folder</button>' : '') + '<button class="obtn tertiary" data-act="editrep" data-id="' + r.id + '">' + I('pencil', 18) + 'Edit report</button><button class="obtn primary" data-act="gcopen" data-id="' + r.id + '">' + I('file-text', 18, '#fff') + 'GC report</button></div></div>' +
+      (r.edited ? '<div class="gcstat edited">' + pill('Edited by ' + (r.edited.name || (r.edited.by ? person(r.edited.by).name : 'the office')) + ' · ' + GC.fmtStamp(r.edited.at), 'neutral') + '<button class="u" data-act="origview" data-id="' + r.id + '">See what ' + esc(person(r.person).short) + ' sent</button></div>' : '') +
       (function () {
         var rvw = r.review || {}, ls = (rvw.sent || []).slice(-1)[0], ld = (rvw.drafts || []).slice(-1)[0], bits = [];
         if (ls) bits.push(pill('Sent to GC ' + GC.fmtStamp(ls.at) + (ls.rev ? ' · Revision ' + ls.rev : ''), 'ok'));
@@ -808,6 +809,7 @@
   // The foreman's "as sent" record: everything he sent, unedited. Made on the phone at Send, or later by the office
   // from SharePoint if it's missing.
   function recordPdf(rep, photos) {
+    if (rep.orig) rep = Object.assign({}, rep, rep.orig); // the as-sent record ignores office edits
     var o = GC.original(rep), p = person(rep.person);
     var picks = (photos || []).map(function (ph, i) { return { ph: ph, i: i }; }).filter(function (x) { return x.ph && !isVid(x.ph); });
     return GC.toJpegs(picks.map(function (x) { return function () { return photoSrc(x.ph); }; })).then(function (imgs) {
@@ -862,7 +864,7 @@
     if (k === 'notes') return '';
     var cur = rv(r).sections[k], orig = GC.original(r)[k].join('\n');
     if (GC.lines(cur.text).join('\n') === orig) return '';
-    return '<div class="gcorig"><div class="l">Foreman wrote</div><p>' + esc(orig || '(nothing)').replace(/\n/g, '<br>') + '</p><button class="u" data-act="gcrevert" data-id="' + r.id + '" data-k="' + k + '">Use the foreman’s words</button></div>';
+    return '<div class="gcorig"><div class="l">' + (r.edited ? 'Report says' : 'Foreman wrote') + '</div><p>' + esc(orig || '(nothing)').replace(/\n/g, '<br>') + '</p><button class="u" data-act="gcrevert" data-id="' + r.id + '" data-k="' + k + '">' + (r.edited ? 'Use the report’s words' : 'Use the foreman’s words') + '</button></div>';
   }
   function gcRedraw(id) {
     if (location.hash.indexOf('/gc/' + id) < 0 || $layer.firstChild) return;
@@ -1009,6 +1011,81 @@
       '<div class="acts"><button class="obtn tertiary" data-act="close">Cancel</button><button class="obtn primary" data-act="' + (ej ? 'saveedit' : 'savejob') + '"' + (reqId ? ' data-req="' + reqId + '"' : '') + (ej ? ' data-num="' + esc(ej.num) + '"' : '') + '>' + (ej ? 'Save' : reqId ? 'Approve' : 'Add job') + '</button></div></div>');
     setTimeout(function () { var i = document.getElementById('aj-n'); if (i) i.focus(); }, 50);
   }
+  /* ---------------- office: edit a report ----------------
+     The office can fix the job, the date and any answer. The foreman's original is kept (r.orig) for the
+     as-sent record and "See what he sent". Edits carry into the GC report where it still matched the report. */
+  var YN = [['mat', 'Materials, equipment, or inspections', 'What’s needed and when'], ['delay', 'Weather, site, or other-trade delays', 'What happened'], ['safety', 'Safety or quality issues', 'What happened']];
+  function openEditReport(id) {
+    var r = S().reports.filter(function (x) { return x.id === id; })[0]; if (!r) return;
+    var opts = S().jobs.filter(function (j) { return j.active || j.num === r.job; }).sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (j) { return [j.num, j.num + ' · ' + j.name]; });
+    if (r.job.indexOf('new:') === 0) opts.unshift([r.job, 'New job request: ' + (r.jobName || '')]);
+    function ta(idn, label, val, hint) { return '<div class="fld"><label for="' + idn + '">' + label + '</label><textarea id="' + idn + '" rows="3" aria-describedby="' + idn + '-hint">' + esc(val) + '</textarea><div class="fhint" id="' + idn + '-hint">' + hint + '</div></div>'; }
+    openLayer('<div class="dim" data-act="close"></div><div class="modal wide" role="dialog" aria-label="Edit report"><div class="toprow"><h2>EDIT REPORT</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
+      '<p class="mhint">' + esc(person(r.person).name) + ' sent this ' + shortDate(r.sentDate || r.date) + ' at ' + sentText(r) + '. His original stays saved, and the report will show that you edited it.</p>' +
+      '<div class="frow"><div class="fld"><label for="er-job">Job</label><label class="dd" style="display:flex"><select id="er-job">' + opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === r.job ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label></div>' +
+      '<div class="fld"><label for="er-date">Report date</label><input id="er-date" type="date" max="' + todayKey() + '" value="' + esc(r.date) + '"></div></div>' +
+      ta('er-work', 'Work completed', items(r.work).join('\n'), 'One item per line') +
+      YN.map(function (y) {
+        var v = r[y[0]];
+        return '<fieldset class="ynf"><legend>' + y[1] + '</legend><div class="kd-rg">' +
+          '<label><input type="radio" class="kd-rb" name="er-' + y[0] + '" value="no"' + (v.yes ? '' : ' checked') + '>No</label>' +
+          '<label><input type="radio" class="kd-rb" name="er-' + y[0] + '" value="yes"' + (v.yes ? ' checked' : '') + '>Yes</label></div>' +
+          '<div class="fld"' + (v.yes ? '' : ' hidden') + '><label for="er-' + y[0] + '-t" class="sr">' + y[2] + '</label><textarea id="er-' + y[0] + '-t" rows="2" placeholder="' + y[2] + '">' + esc(v.yes ? v.text : '') + '</textarea></div></fieldset>';
+      }).join('') +
+      ta('er-plan', 'Plan for next workday', items(r.plan).join('\n'), 'One item per line') +
+      '<div class="acts"><button class="obtn tertiary" data-act="close">Cancel</button><button class="obtn primary" data-act="saverep" data-id="' + r.id + '">Save changes</button></div></div>');
+  }
+  function openOriginal(id) {
+    var r = S().reports.filter(function (x) { return x.id === id; })[0]; if (!r) return;
+    var o = Object.assign({}, r, r.orig || {}), g = GC.original(o);
+    function sec(t, arr) { return '<div class="blk"><div class="l">' + t + '</div>' + (arr.length > 1 ? '<ol class="olist">' + arr.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>' : '<p>' + esc(arr[0] || '—') + '</p>') + '</div>'; }
+    openLayer('<div class="dim" data-act="close"></div><div class="modal wide" role="dialog" aria-label="What the foreman sent"><div class="toprow"><h2>WHAT ' + esc(person(r.person).short.toUpperCase()) + ' SENT</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
+      '<p class="mhint">Before the office edit. ' + esc(jobName(o)) + ' · ' + shortDate(o.date) + '</p>' +
+      sec('Work completed', g.work) + sec('Materials, equipment, or inspections', g.mat) + sec('Weather, site, or other-trade delays', g.delay) + sec('Safety or quality issues', g.safety) + sec('Plan for next workday', g.plan) +
+      '<div class="acts"><button class="obtn primary" data-act="close">Done</button></div></div>');
+  }
+  function saveReportEdit(r) {
+    var val = function (x) { return document.getElementById(x).value; };
+    var radio = function (k) { var c = document.querySelector('input[name="er-' + k + '"]:checked'); return c && c.value === 'yes'; };
+    ['er-job', 'er-date', 'er-work', 'er-plan', 'er-mat-t', 'er-delay-t', 'er-safety-t'].forEach(function (x) { fieldState(x); });
+    var nj = val('er-job'), nd = val('er-date'), work = GC.lines(val('er-work')), plan = GC.lines(val('er-plan')), first = null;
+    function bad(x, m) { fieldState(x, 'err', m); if (!first) first = x; }
+    if (!/^\d{4}-\d\d-\d\d$/.test(nd)) bad('er-date', 'Pick the day the work was done');
+    else if (nd > todayKey()) bad('er-date', 'The date can’t be in the future');
+    if (!work.length) bad('er-work', 'Add at least one item');
+    var yn = {}; YN.forEach(function (y) { var on = radio(y[0]), tx = val('er-' + y[0] + '-t').trim(); yn[y[0]] = { yes: on, text: on ? tx : '' }; if (on && !tx) bad('er-' + y[0] + '-t', 'Add the details, or pick No'); });
+    if (first) { document.getElementById(first).focus(); return; }
+    var before = JSON.stringify({ job: r.job, jobName: r.jobName, date: r.date, work: items(r.work), plan: items(r.plan), mat: r.mat, delay: r.delay, safety: r.safety });
+    var nextJobName = nj.indexOf('new:') === 0 ? r.jobName : null;
+    var after = JSON.stringify({ job: nj, jobName: nextJobName, date: nd, work: work, plan: plan, mat: yn.mat, delay: yn.delay, safety: yn.safety });
+    if (before === after) { closeLayer(); toast('Nothing changed', { kind: 'info' }); return; }
+    var undo = JSON.parse(JSON.stringify({ job: r.job, jobName: r.jobName, date: r.date, work: r.work, plan: r.plan, mat: r.mat, delay: r.delay, safety: r.safety, orig: r.orig, edited: r.edited, review: r.review || null }));
+    var oldG = GC.original(r), moved = nj !== r.job || nd !== r.date, jobMoved = nj !== r.job;
+    if (!r.orig) r.orig = JSON.parse(JSON.stringify({ job: r.job, jobName: r.jobName, date: r.date, work: r.work, plan: r.plan, mat: r.mat, delay: r.delay, safety: r.safety }));
+    r.job = nj; r.jobName = nextJobName; r.date = nd; r.work = work; r.plan = plan.length ? plan : ['']; r.mat = yn.mat; r.delay = yn.delay; r.safety = yn.safety;
+    r.edited = { by: S().me || '', name: S().me ? person(S().me).name : 'the office', at: Date.now() };
+    // The GC report follows the edit wherever the office hadn't already reworded it.
+    var reviewChanged = false;
+    if (r.review && r.review.sections) {
+      var newG = GC.original(r);
+      Object.keys(r.review.sections).forEach(function (k) { var sx = r.review.sections[k]; if (oldG[k] && JSON.stringify(GC.lines(sx.text)) === JSON.stringify(oldG[k])) { sx.text = newG[k].slice(); reviewChanged = true; } });
+      if (jobMoved && r.review.no && !(r.review.sent || []).length) { r.review.no = null; reviewChanged = true; }
+    }
+    DB.save(); closeLayer(); var y = window.scrollY; route(); window.scrollTo(0, y);
+    if (!LIVE.on) { toast('Report updated', { msg: moved ? 'Moved to ' + jobName(r) + ', ' + shortDate(r.date) + '.' : '' }); return; }
+    r._editSaving = true;
+    LIVE.saveEdit(r, moved).then(function (res) {
+      r._editSaving = false;
+      if (reviewChanged && LIVE.hasReviewColumn()) LIVE.saveReview(r).catch(function (e) { console.error(e); });
+      if (res.moved === false) toast('Report updated, photos didn’t move', { kind: 'warning', msg: 'The photos and PDFs are still in the old job folder. ' + failWhy(res.error) });
+      else toast('Report updated', { msg: res.moved ? 'Photos and PDFs moved to the ' + jobName(r) + ' folder.' : '' });
+      if (!$layer.firstChild && location.hash.indexOf(r.id) > -1) { var y2 = window.scrollY; route(); window.scrollTo(0, y2); }
+    }, function (e) {
+      console.error(e); r._editSaving = false; Object.assign(r, undo); if (!undo.orig) delete r.orig; if (!undo.edited) delete r.edited; DB.save();
+      if (!$layer.firstChild) { var y3 = window.scrollY; route(); window.scrollTo(0, y3); }
+      toast('Report not updated', { kind: 'error', msg: failWhy(e) + ' Your changes were undone.', action: { label: 'Try again', fn: function () { openEditReport(r.id); } } });
+    });
+  }
   function openMerge(reqId) {
     var r = S().requests.filter(function (x) { return x.id === reqId; })[0];
     openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Merge"><div class="toprow"><h2>MERGE INTO A JOB</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
@@ -1095,6 +1172,9 @@
       case 'rmphoto': d = D(); d.uploaded = []; var gone = d.photos.splice(+t.dataset.i, 1)[0]; if (LIVE.on && gone && gone.key) LIVE.blobs.del(gone.key).catch(function () {}); saveSoon(); refresh('q-photos'); break;
       case 'send': send(); break;
       case 'gcopen': go('#/office/gc/' + t.dataset.id); break;
+      case 'editrep': openEditReport(t.dataset.id); break;
+      case 'origview': openOriginal(t.dataset.id); break;
+      case 'saverep': var er = S().reports.filter(function (x) { return x.id === t.dataset.id; })[0]; if (er) saveReportEdit(er); break;
       case 'gcretry': var rt = gcReport(t.dataset.id); rt._mediaErr = false; route(); break;
       case 'gccombine':
         var lr = gcReport(t.dataset.id), orp = gcReport(t.dataset.o), lv = rv(lr), ov = rv(orp);
@@ -1363,6 +1443,7 @@
   setInterval(function () { if (!document.hidden) checkUpdate(true); }, 15 * 60000);
 
   // Typing in a field that shows an error clears it; the check runs again on the next save or send.
+  document.addEventListener('change', function (ev) { var t = ev.target; if (!t.classList || !t.classList.contains('kd-rb')) return; var box = t.closest('.ynf').querySelector('.fld'); box.hidden = t.value !== 'yes'; if (t.value === 'yes') box.querySelector('textarea').focus(); else fieldState(box.querySelector('textarea').id); });
   document.addEventListener('input', function (ev) { var f = ev.target.closest && ev.target.closest('.fld.is-err,.fld.is-warn'); if (f && ev.target.id) fieldState(ev.target.id); });
 
   window.APP = { route: route, toast: toast, go: go, checkUpdate: checkUpdate };

@@ -220,7 +220,7 @@
       job: f.JobNumber || ('new:' + (f.JobName || '')), jobName: f.JobNumber ? null : (f.JobName || ''),
       weather: f.Weather || '', work: data.work || lines(f.Work), plan: data.plan || lines(f.Plan),
       mat: { yes: !!f.NeedsMaterials, text: f.Materials || '' }, delay: { yes: !!f.HadDelay, text: f.Delays || '' }, safety: { yes: !!f.SafetyIssue, text: f.Safety || '' },
-      photos: +f.Photos || 0, videos: +f.Videos || 0, mediaFolder: f.MediaFolderId || null, mediaUrl: f.MediaFolderUrl || null, note: data.requestNote || '', taken: data.taken || [], recordPdf: data.recordPdf || '', review: parseReview(f.OfficeReview), photoData: null, off: !!data.off
+      photos: +f.Photos || 0, videos: +f.Videos || 0, mediaFolder: f.MediaFolderId || null, mediaUrl: f.MediaFolderUrl || null, note: data.requestNote || '', taken: data.taken || [], recordPdf: data.recordPdf || '', review: parseReview(f.OfficeReview), photoData: null, off: !!data.off, orig: data.orig || null, edited: data.edited || null
     };
   }
   function load() {
@@ -330,7 +330,7 @@
       var offsChanged = offs.length !== (s.offs || []).length; s.offs = offs;
       s.reports.forEach(function (x) { old[x.id] = x; });
       var added = fresh.filter(function (x) { return !old[x.id]; });
-      var changed = added.length || fresh.length !== s.reports.length || fresh.some(function (x) { var o = old[x.id]; return o && (o.job !== x.job || o.mediaFolder !== x.mediaFolder || o.photos !== x.photos || (!o._dirty && JSON.stringify(o.review) !== JSON.stringify(x.review))); });
+      var changed = added.length || fresh.length !== s.reports.length || fresh.some(function (x) { var o = old[x.id]; return o && (o.job !== x.job || o.date !== x.date || JSON.stringify(o.edited) !== JSON.stringify(x.edited) || o.mediaUrl !== x.mediaUrl || o.mediaFolder !== x.mediaFolder || o.photos !== x.photos || (!o._dirty && JSON.stringify(o.review) !== JSON.stringify(x.review))); });
       var jobs = r[1].map(function (it) { var f = it.fields; return { itemId: it.id, num: f.Title, name: f.JobName || f.Title, active: f.Active !== false, foreman: f.Foreman || null, address: f.Address || '', gc: f.GC || '', gcEmail: f.GCEmail || '', gcProject: f.GCProject || '' }; }).filter(function (j) { return j.num; });
       var jobsChanged = JSON.stringify(jobs) !== JSON.stringify(s.jobs);
       if (!changed && !jobsChanged && !offsChanged) return;
@@ -338,6 +338,7 @@
         var o = old[x.id]; if (!o) return;
         if (o.photoData && o.mediaFolder === x.mediaFolder) { x.photoData = o.photoData; x.pdfs = o.pdfs; }
         if (o._dirty) { x.review = o.review; x._dirty = true; } // office edits still saving: keep them
+        if (o._editSaving) { ['job', 'jobName', 'date', 'work', 'plan', 'mat', 'delay', 'safety', 'orig', 'edited', 'mediaUrl', 'review'].forEach(function (k) { x[k] = o[k]; }); x._editSaving = true; }
       });
       s.reports = fresh; s.jobs = jobs;
       fresh.forEach(function (rep) { if (!s.people.some(function (p) { return p.id === rep.person; })) s.people.push(mkPerson(rep.person, rep.personName, { extra: true })); });
@@ -445,16 +446,18 @@
   };
 
   /* ---------- writing ---------- */
+  // The app's extra data for a report row. orig = what the foreman sent, kept when the office edits the report.
+  function appData(rep) { var d = { v: 1, work: rep.work, plan: rep.plan, requestNote: rep.note || '', taken: rep.taken || [], recordPdf: rep.recordPdf || '' }; if (rep.orig) d.orig = rep.orig; if (rep.edited) d.edited = rep.edited; return JSON.stringify(d); }
+  function numbered(a) { return a.map(function (t, i) { return (a.length > 1 ? (i + 1) + '. ' : '') + t; }).join('\n'); }
   function repFields(rep, folder) {
     var num = rep.job.indexOf('new:') === 0 ? '' : rep.job;
     var name = rep.jobName || (DB.state.jobs.filter(function (j) { return j.num === rep.job; })[0] || {}).name || '';
-    function numbered(a) { return a.map(function (t, i) { return (a.length > 1 ? (i + 1) + '. ' : '') + t; }).join('\n'); }
     return {
       Title: rep.id, ReportDate: rep.date, SentDate: rep.sentDate, SentAt: rep.sentAt, PersonEmail: rep.person, PersonName: rep.personName,
       JobNumber: num, JobName: name, Weather: rep.weather || '', Work: numbered(rep.work), Plan: numbered(rep.plan),
       NeedsMaterials: !!rep.mat.yes, Materials: rep.mat.text || '', HadDelay: !!rep.delay.yes, Delays: rep.delay.text || '', SafetyIssue: !!rep.safety.yes, Safety: rep.safety.text || '',
       Photos: rep.photos, Videos: rep.videos, MediaFolderId: folder ? folder.id : '', MediaFolderUrl: folder ? folder.url : '',
-      AppData: JSON.stringify({ v: 1, work: rep.work, plan: rep.plan, requestNote: rep.note || '', taken: rep.taken || [], recordPdf: rep.recordPdf || '' })
+      AppData: appData(rep)
     };
   }
   // Photos go up first, then the report row, so a dropped signal never leaves a report without its photos.
@@ -501,7 +504,7 @@
   LIVE.hasReviewColumn = function () { return !!cols.OfficeReview; };
   LIVE.markRecord = function (r, name) {
     r.recordPdf = name;
-    return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { AppData: JSON.stringify({ v: 1, work: r.work, plan: r.plan, requestNote: r.note || '', taken: r.taken || [], recordPdf: name }) });
+    return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { AppData: appData(r) });
   };
   LIVE.saveReview = function (r) {
     if (!cols.OfficeReview) return Promise.reject(Object.assign(new Error('Review column missing'), { status: 0 }));
@@ -550,6 +553,28 @@
       var url = f['@microsoft.graph.downloadUrl'];
       if (!url) throw new Error('No download link for ' + (item.name || 'the photo'));
       return timed(url, {}, 60000).then(function (r) { if (!r.ok) throw new Error('photo ' + r.status); return r.blob(); });
+    });
+  };
+  // Saves an office edit to a report. If the job or date changed, the report's folder (photos and PDFs) moves to
+  // the new job's folder and takes the new date in its name. Resolves { moved: true|false|null } (null = nothing to move).
+  LIVE.saveEdit = function (r, folderChanged) {
+    var f = repFields(r, null);
+    var fields = { ReportDate: r.date, JobNumber: f.JobNumber, JobName: f.JobName, Work: f.Work, Plan: f.Plan, NeedsMaterials: f.NeedsMaterials, Materials: f.Materials, HadDelay: f.HadDelay, Delays: f.Delays, SafetyIssue: f.SafetyIssue, Safety: f.Safety, AppData: f.AppData };
+    return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', fields).then(function () {
+      if (!folderChanged || !r.mediaFolder) return { moved: null };
+      return getDrive().then(function () { return jobFolderName(r); }).then(function (jf) {
+        var jobPath = CFG.jobsFolder + '/' + jf;
+        return api('GET', '/drives/' + drive.id + '/root:/' + encPath(jobPath) + '?$select=id').catch(function (e) {
+          if (e.status !== 404) throw e;
+          return api('POST', '/drives/' + drive.id + '/root:/' + encPath(CFG.jobsFolder) + ':/children', { name: jf, folder: {}, '@microsoft.graph.conflictBehavior': 'fail' }).then(function (x) { jobFolders = null; return x; });
+        }).then(function (parent) {
+          var name = clean(r.date + ' ' + r.personName + ' ' + r.sentAt.replace(':', ''));
+          return api('PATCH', '/drives/' + drive.id + '/items/' + r.mediaFolder + '?@microsoft.graph.conflictBehavior=rename', { name: name, parentReference: { id: parent.id } });
+        }).then(function (moved) {
+          r.mediaUrl = moved.webUrl || r.mediaUrl;
+          return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { MediaFolderUrl: r.mediaUrl });
+        }).then(function () { return { moved: true }; });
+      }).catch(function (e) { console.error('folder move', e); return { moved: false, error: e }; });
     });
   };
   LIVE.patchReports = function (list) {

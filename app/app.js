@@ -1019,11 +1019,12 @@
     var r = S().reports.filter(function (x) { return x.id === id; })[0]; if (!r) return;
     var opts = S().jobs.filter(function (j) { return j.active || j.num === r.job; }).sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (j) { return [j.num, j.num + ' · ' + j.name]; });
     if (r.job.indexOf('new:') === 0) opts.unshift([r.job, 'New job request: ' + (r.jobName || '')]);
+    var sentNo = r.review && r.review.no && (r.review.sent || []).length ? r.review.no : 0;
     function ta(idn, label, val, hint) { return '<div class="fld"><label for="' + idn + '">' + label + '</label><textarea id="' + idn + '" rows="3" aria-describedby="' + idn + '-hint">' + esc(val) + '</textarea><div class="fhint" id="' + idn + '-hint">' + hint + '</div></div>'; }
     openLayer('<div class="dim" data-act="close"></div><div class="modal wide" role="dialog" aria-label="Edit report"><div class="toprow"><h2>EDIT REPORT</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
       '<p class="mhint">' + esc(person(r.person).name) + ' sent this ' + shortDate(r.sentDate || r.date) + ' at ' + sentText(r) + '. His original stays saved, and the report will show that you edited it.</p>' +
-      '<div class="frow"><div class="fld"><label for="er-job">Job</label><label class="dd" style="display:flex"><select id="er-job">' + opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === r.job ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label></div>' +
-      '<div class="fld"><label for="er-date">Report date</label><input id="er-date" type="date" max="' + todayKey() + '" value="' + esc(r.date) + '"></div></div>' +
+      '<div class="frow"><div class="fld"><label for="er-job">Job</label><label class="dd" style="display:flex"><select id="er-job"' + (sentNo ? ' disabled aria-describedby="er-job-hint"' : '') + '>' + opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === r.job ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label>' + (sentNo ? '<div class="fhint" id="er-job-hint">Locked: the GC already has this as daily report No ' + sentNo + ' for this job</div>' : '') + '</div>' +
+      '<div class="fld"><label for="er-date">Report date</label><input id="er-date" type="date" max="' + esc(r.sentDate || todayKey()) + '" value="' + esc(r.date) + '"></div></div>' +
       ta('er-work', 'Work completed', items(r.work).join('\n'), 'One item per line') +
       YN.map(function (y) {
         var v = r[y[0]];
@@ -1052,6 +1053,7 @@
     function bad(x, m) { fieldState(x, 'err', m); if (!first) first = x; }
     if (!/^\d{4}-\d\d-\d\d$/.test(nd)) bad('er-date', 'Pick the day the work was done');
     else if (nd > todayKey()) bad('er-date', 'The date can’t be in the future');
+    else if (r.sentDate && nd > r.sentDate) bad('er-date', 'It was sent ' + shortDate(r.sentDate) + ', so the work date can’t be later than that');
     if (!work.length) bad('er-work', 'Add at least one item');
     var yn = {}; YN.forEach(function (y) { var on = radio(y[0]), tx = val('er-' + y[0] + '-t').trim(); yn[y[0]] = { yes: on, text: on ? tx : '' }; if (on && !tx) bad('er-' + y[0] + '-t', 'Add the details, or pick No'); });
     if (first) { document.getElementById(first).focus(); return; }
@@ -1059,33 +1061,54 @@
     var nextJobName = nj.indexOf('new:') === 0 ? r.jobName : null;
     var after = JSON.stringify({ job: nj, jobName: nextJobName, date: nd, work: work, plan: plan, mat: yn.mat, delay: yn.delay, safety: yn.safety });
     if (before === after) { closeLayer(); toast('Nothing changed', { kind: 'info' }); return; }
-    var undo = JSON.parse(JSON.stringify({ job: r.job, jobName: r.jobName, date: r.date, work: r.work, plan: r.plan, mat: r.mat, delay: r.delay, safety: r.safety, orig: r.orig, edited: r.edited, review: r.review || null }));
+    var undo = JSON.parse(JSON.stringify({ weather: r.weather, job: r.job, jobName: r.jobName, date: r.date, work: r.work, plan: r.plan, mat: r.mat, delay: r.delay, safety: r.safety, orig: r.orig, edited: r.edited, review: r.review || null }));
     var oldG = GC.original(r), moved = nj !== r.job || nd !== r.date, jobMoved = nj !== r.job;
     if (!r.orig) r.orig = JSON.parse(JSON.stringify({ job: r.job, jobName: r.jobName, date: r.date, work: r.work, plan: r.plan, mat: r.mat, delay: r.delay, safety: r.safety }));
     r.job = nj; r.jobName = nextJobName; r.date = nd; r.work = work; r.plan = plan.length ? plan : ['']; r.mat = yn.mat; r.delay = yn.delay; r.safety = yn.safety;
     r.edited = { by: S().me || '', name: S().me ? person(S().me).name : 'the office', at: Date.now() };
     // The GC report follows the edit wherever the office hadn't already reworded it.
-    var reviewChanged = false;
+    var reviewChanged = false, others = [], separated = false;
     if (r.review && r.review.sections) {
       var newG = GC.original(r);
       Object.keys(r.review.sections).forEach(function (k) { var sx = r.review.sections[k]; if (oldG[k] && JSON.stringify(GC.lines(sx.text)) === JSON.stringify(oldG[k])) { sx.text = newG[k].slice(); reviewChanged = true; } });
       if (jobMoved && r.review.no && !(r.review.sent || []).length) { r.review.no = null; reviewChanged = true; }
     }
+    // A combined GC report only joins reports for the same job and day, so a move separates them.
+    if (moved && r.review) {
+      if (r.review.combinedInto) {
+        var host = byId(r.review.combinedInto);
+        if (host && host.review) { host.review.combine = (host.review.combine || []).filter(function (x) { return x !== r.id; }); if (host.review.otherPhotos) delete host.review.otherPhotos[r.id]; others.push(host); }
+        r.review.combinedInto = null; reviewChanged = separated = true;
+      }
+      if ((r.review.combine || []).length) {
+        r.review.combine.forEach(function (oid) { var o2 = byId(oid); if (o2 && o2.review) { o2.review.combinedInto = null; others.push(o2); } });
+        r.review.combine = []; r.review.otherPhotos = {}; reviewChanged = separated = true;
+      }
+    }
+    // Weather belongs to the day and the job site, so look it up again (blank beats wrong).
+    var wxP = Promise.resolve(r.weather);
+    if (moved) { r.weather = ''; wxP = dayWeather(r.job.indexOf('new:') === 0 ? { requested: true, addr: r.note || '' } : { num: r.job }, r.date).catch(function () { return ''; }); }
     DB.save(); closeLayer(); var y = window.scrollY; route(); window.scrollTo(0, y);
-    if (!LIVE.on) { toast('Report updated', { msg: moved ? 'Moved to ' + jobName(r) + ', ' + shortDate(r.date) + '.' : '' }); return; }
+    var id = r.id, cur = function () { return byId(id) || r; };
+    var doneMsg = function (extra) { return [moved ? 'Moved to ' + jobName(cur()) + ', ' + shortDate(cur().date) + '.' : '', separated ? 'It’s no longer combined with the other foreman’s GC report.' : '', extra || ''].filter(Boolean).join(' '); };
+    function redraw() { if (!$layer.firstChild && location.hash.indexOf(id) > -1) { var y2 = window.scrollY; route(); window.scrollTo(0, y2); } }
+    if (!LIVE.on) { wxP.then(function (w) { cur().weather = w || ''; DB.save(); redraw(); }); toast('Report updated', { msg: doneMsg() }); return; }
     r._editSaving = true;
-    LIVE.saveEdit(r, moved).then(function (res) {
-      r._editSaving = false;
-      if (reviewChanged && LIVE.hasReviewColumn()) LIVE.saveReview(r).catch(function (e) { console.error(e); });
+    wxP.then(function (w) { var c = cur(); c.weather = w || ''; return LIVE.saveEdit(c, moved); }).then(function (res) {
+      var c = cur(); c._editSaving = false; r._editSaving = false; if (res.url) c.mediaUrl = res.url; DB.save();
+      if (reviewChanged && LIVE.hasReviewColumn()) [c].concat(others.map(function (o) { return byId(o.id) || o; })).forEach(function (x) { LIVE.saveReview(x).catch(function (e) { console.error(e); }); });
+      if (jobMoved) LIVE.requests();
       if (res.moved === false) toast('Report updated, photos didn’t move', { kind: 'warning', msg: 'The photos and PDFs are still in the old job folder. ' + failWhy(res.error) });
-      else toast('Report updated', { msg: res.moved ? 'Photos and PDFs moved to the ' + jobName(r) + ' folder.' : '' });
-      if (!$layer.firstChild && location.hash.indexOf(r.id) > -1) { var y2 = window.scrollY; route(); window.scrollTo(0, y2); }
+      else toast('Report updated', { msg: doneMsg(res.moved ? 'Photos and PDFs moved to the new job folder.' : '') });
+      redraw();
     }, function (e) {
-      console.error(e); r._editSaving = false; Object.assign(r, undo); if (!undo.orig) delete r.orig; if (!undo.edited) delete r.edited; DB.save();
-      if (!$layer.firstChild) { var y3 = window.scrollY; route(); window.scrollTo(0, y3); }
-      toast('Report not updated', { kind: 'error', msg: failWhy(e) + ' Your changes were undone.', action: { label: 'Try again', fn: function () { openEditReport(r.id); } } });
+      console.error(e);
+      [r, byId(id)].forEach(function (x) { if (!x) return; x._editSaving = false; Object.assign(x, undo); if (!undo.orig) delete x.orig; if (!undo.edited) delete x.edited; });
+      DB.save(); redraw(); if (others.length && LIVE.refresh) LIVE.refresh();
+      toast('Report not updated', { kind: 'error', msg: failWhy(e) + ' Your changes were undone.', action: { label: 'Try again', fn: function () { openEditReport(id); } } });
     });
   }
+  function byId(id) { return S().reports.filter(function (x) { return x.id === id; })[0]; }
   function openMerge(reqId) {
     var r = S().requests.filter(function (x) { return x.id === reqId; })[0];
     openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Merge"><div class="toprow"><h2>MERGE INTO A JOB</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
@@ -1443,7 +1466,7 @@
   setInterval(function () { if (!document.hidden) checkUpdate(true); }, 15 * 60000);
 
   // Typing in a field that shows an error clears it; the check runs again on the next save or send.
-  document.addEventListener('change', function (ev) { var t = ev.target; if (!t.classList || !t.classList.contains('kd-rb')) return; var box = t.closest('.ynf').querySelector('.fld'); box.hidden = t.value !== 'yes'; if (t.value === 'yes') box.querySelector('textarea').focus(); else fieldState(box.querySelector('textarea').id); });
+  document.addEventListener('change', function (ev) { var t = ev.target; if (!t.classList || !t.classList.contains('kd-rb')) return; var box = t.closest('.ynf').querySelector('.fld'); box.hidden = t.value !== 'yes'; if (t.value !== 'yes') fieldState(box.querySelector('textarea').id); });
   document.addEventListener('input', function (ev) { var f = ev.target.closest && ev.target.closest('.fld.is-err,.fld.is-warn'); if (f && ev.target.id) fieldState(ev.target.id); });
 
   window.APP = { route: route, toast: toast, go: go, checkUpdate: checkUpdate };

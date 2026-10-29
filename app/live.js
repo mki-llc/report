@@ -374,7 +374,7 @@
     var fallback = clean((num ? num + ' ' : 'New ') + name);
     if (!num) return Promise.resolve(fallback);
     var p = jobFolders ? Promise.resolve(jobFolders) : getAll('/drives/' + drive.id + '/root:/' + encPath(CFG.jobsFolder) + ':/children?$select=name,folder&$top=500').then(function (k) { jobFolders = k.filter(function (x) { return x.folder; }).map(function (x) { return x.name; }); return jobFolders; }).catch(function () { jobFolders = []; return jobFolders; });
-    return p.then(function (names) { return names.filter(function (n) { return n.indexOf(num) === 0; })[0] || fallback; });
+    return p.then(function (names) { return names.filter(function (n) { return n === num || n.indexOf(num + ' ') === 0; })[0] || fallback; });
   }
   var CHUNK = 327680 * 10;
   function uploadOne(path, blob, onBytes) {
@@ -502,9 +502,11 @@
   };
   LIVE.unmarkOff = function (o) { return api('DELETE', listPath(L.reports) + '/items/' + o.itemId); };
   LIVE.hasReviewColumn = function () { return !!cols.OfficeReview; };
+  // Reads the row's AppData from SharePoint, so a write never wipes what another device saved since this one loaded.
+  function serverData(r) { return api('GET', listPath(L.reports) + '/items/' + r.itemId + '?$expand=fields($select=AppData)').then(function (it) { try { return JSON.parse((it.fields || {}).AppData || '{}'); } catch (e) { return {}; } }); }
   LIVE.markRecord = function (r, name) {
     r.recordPdf = name;
-    return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { AppData: appData(r) });
+    return serverData(r).then(function (d) { d.v = d.v || 1; d.recordPdf = name; if (d.orig) r.orig = d.orig; if (d.edited) r.edited = d.edited; return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { AppData: JSON.stringify(d) }); });
   };
   LIVE.saveReview = function (r) {
     if (!cols.OfficeReview) return Promise.reject(Object.assign(new Error('Review column missing'), { status: 0 }));
@@ -559,8 +561,13 @@
   // the new job's folder and takes the new date in its name. Resolves { moved: true|false|null } (null = nothing to move).
   LIVE.saveEdit = function (r, folderChanged) {
     var f = repFields(r, null);
-    var fields = { ReportDate: r.date, JobNumber: f.JobNumber, JobName: f.JobName, Work: f.Work, Plan: f.Plan, NeedsMaterials: f.NeedsMaterials, Materials: f.Materials, HadDelay: f.HadDelay, Delays: f.Delays, SafetyIssue: f.SafetyIssue, Safety: f.Safety, AppData: f.AppData };
-    return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', fields).then(function () {
+    return serverData(r).then(function (d) {
+      // The first saved original wins: an edit from another device that got there first keeps its snapshot.
+      if (d.orig) r.orig = d.orig;
+      d.v = d.v || 1; d.work = r.work; d.plan = r.plan; d.orig = r.orig; d.edited = r.edited; if (!d.recordPdf && r.recordPdf) d.recordPdf = r.recordPdf;
+      var fields = { ReportDate: r.date, JobNumber: f.JobNumber, JobName: f.JobName, Weather: r.weather || '', Work: f.Work, Plan: f.Plan, NeedsMaterials: f.NeedsMaterials, Materials: f.Materials, HadDelay: f.HadDelay, Delays: f.Delays, SafetyIssue: f.SafetyIssue, Safety: f.Safety, AppData: JSON.stringify(d) };
+      return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', fields);
+    }).then(function () {
       if (!folderChanged || !r.mediaFolder) return { moved: null };
       return getDrive().then(function () { return jobFolderName(r); }).then(function (jf) {
         var jobPath = CFG.jobsFolder + '/' + jf;
@@ -573,7 +580,7 @@
         }).then(function (moved) {
           r.mediaUrl = moved.webUrl || r.mediaUrl;
           return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { MediaFolderUrl: r.mediaUrl });
-        }).then(function () { return { moved: true }; });
+        }).then(function () { return { moved: true, url: r.mediaUrl }; });
       }).catch(function (e) { console.error('folder move', e); return { moved: false, error: e }; });
     });
   };

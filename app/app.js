@@ -59,7 +59,8 @@
   function srcOf(p) { return p && typeof p === 'object' ? (p.src || (p.key && VIDS[p.key]) || p.thumb) : p; }
   var LIVE = window.LIVE || { on: false };
   // Saves to SharePoint in the background; if it fails the office sees a message and can try again.
-  function sync(pr, okMsg) { if (!LIVE.on || !pr) return; pr.then(function () { if (okMsg) toast(okMsg); }, function (e) { console.error(e); toast('Couldn’t save that to SharePoint. Check your connection and try again.'); }); }
+  // Saves to SharePoint in the background. If it fails, the change is put back on screen so nobody thinks it saved.
+  function sync(pr, okMsg, undo) { if (!LIVE.on || !pr) return; pr.then(function () { if (okMsg) toast(okMsg); }, function (e) { console.error(e); if (undo) undo(); toast(e && e.status === 403 ? 'Your account isn’t allowed to change that. Ask Alex to check your access.' : 'Couldn’t save that to SharePoint, so it was put back. Check your connection and try again.'); }); }
   function mmss(sec) { sec = Math.round(sec || 0); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
   function playBadge(p, sm) { return isVid(p) ? '<span class="vbadge' + (sm ? ' sm' : '') + '">' + I('play', sm ? 10 : 12, '#fff') + (sm ? '' : mmss(p.dur)) + '</span>' : ''; }
   function mediaCount(arr) { var v = (arr || []).filter(isVid).length, ph = (arr || []).length - v; return (ph ? ph + (ph === 1 ? ' photo' : ' photos') : '') + (ph && v ? ' · ' : '') + (v ? v + (v === 1 ? ' video' : ' videos') : '') || 'None'; }
@@ -68,8 +69,10 @@
   function items(x) { return (Array.isArray(x) ? x : [x || '']).map(function (t) { return String(t || '').trim(); }).filter(Boolean); }
   function fixDraft(d) { if (!Array.isArray(d.work)) d.work = [d.work || '']; if (!Array.isArray(d.plan)) d.plan = [d.plan || '']; if (!d.work.length) d.work = ['']; if (!d.plan.length) d.plan = ['']; if (!d.day) d.day = d.date; return d; }
   function hasContent(d) { fixDraft(d); return !!(d.job || items(d.work).length || items(d.plan).length || d.photos.length || d.mat.yes !== null || d.delay.yes !== null || d.safety.yes !== null); }
-  // A report started yesterday (night shift, or past midnight) stays as yesterday's report instead of being wiped.
-  function D() { var s = S(), t = todayKey(); if (!s.draft || (s.draft.date !== t && !(hasContent(s.draft) && (dObj(t) - dObj(s.draft.date)) / 864e5 <= 1))) { s.draft = newDraft(); } return fixDraft(s.draft); }
+  // An unsent report with anything in it is kept for up to 30 days (the late-report window), so a report
+  // started Friday is still there Monday. Empty ones from earlier days start fresh.
+  function draftAge(d) { return Math.round((dObj(todayKey()) - dObj(d.day || d.date)) / 864e5); }
+  function D() { var s = S(), t = todayKey(); if (!s.draft || (s.draft.date !== t && !(hasContent(s.draft) && draftAge(s.draft) <= 30))) { s.draft = newDraft(); } return fixDraft(s.draft); }
   var saveT, warned = false; function saveSoon() { clearTimeout(saveT); saveT = setTimeout(function () { if (!DB.save() && !warned) { warned = true; toast('This phone is low on space. Your report is kept while the app is open.'); } }, 300); }
 
   /* ---------------- router ---------------- */
@@ -114,6 +117,16 @@
   function renderStart() {
     var k = todayKey(), me = person(S().me);
     var already = S().reports.filter(function (r) { return r.person === me.id && r.date === k; })[0];
+    var dr = S().draft, open = dr && hasContent(dr) && draftAge(dr) <= 30 ? fixDraft(dr) : null;
+    if (open) {
+      var forDay = open.day === k ? 'today' : shortDate(open.day), stuck = !!open.sendKey;
+      $app.innerHTML = previewBar('f') + '<main class="dark start"><div class="top"><img class="logo" src="' + LOGO + '" alt="MKI LLC"><div class="tag">END OF DAY REPORT</div><p class="weekday">' + wd(k).toUpperCase() + '</p><p class="date">' + md(k).toUpperCase() + '</p></div>' +
+        '<div class="bottom"><button class="go" data-act="start">' + (stuck ? 'FINISH SENDING' : 'FINISH YOUR REPORT') + ' ' + I('arrow-right', 22, '#990000') + '</button>' +
+        '<p class="hint">' + (stuck ? 'Your report for ' + esc(forDay) + ' hasn’t reached the office yet. It’s saved on this ' + (isWide() ? 'iPad' : 'phone') + '. Open it and tap Send.' : 'You started a report for ' + esc(forDay) + (open.job ? ' (' + esc(open.job.name) + ')' : '') + ' and didn’t send it yet. Everything you added is still there.') + '</p>' +
+        (open.day !== k ? '<p class="who"><button data-act="discard">Throw it away and start today’s</button></p>' : '') +
+        '<p class="who">Signed in as ' + esc(me.name) + '. <button data-act="signout">Not you?</button></p>' + (LIVE.on && S().role === 'office' ? '<p class="who"><a href="#/office" class="u" style="color:inherit">Back to office</a></p>' : '') + '</div></main>';
+      return;
+    }
     $app.innerHTML = previewBar('f') + '<main class="dark start"><div class="top"><img class="logo" src="' + LOGO + '" alt="MKI LLC"><div class="tag">END OF DAY REPORT</div><p class="weekday">' + wd(k).toUpperCase() + '</p><p class="date">' + md(k).toUpperCase() + '</p></div>' +
       '<div class="bottom"><button class="go" data-act="start">' + (already ? 'SEND ANOTHER REPORT' : "START TODAY'S REPORT") + ' ' + I('arrow-right', 22, '#990000') + '</button>' +
       '<p class="hint">' + (already ? 'You already sent one today for ' + esc(jobName(already)) + '. Send another only if you worked a second job.' : 'Takes about 3 minutes. Tap the microphone on your keyboard to talk instead of typing.') + '</p>' +
@@ -212,11 +225,16 @@
     var top = el.getBoundingClientRect().top;
     el.outerHTML = CARD[id](d, d.errors || {});
     var nc = document.getElementById(id); if (nc) [].forEach.call(nc.querySelectorAll('textarea'), autoGrow);
-    if (id === 'q-job') { var wx = document.querySelector('.wx'); if (wx) wx.innerHTML = I('sun', 16, '#6B6262') + wxText(d); if (d.job && !d.weather && d.day === todayKey()) getWeather(); }
+    if (id === 'q-job') { var wx = document.querySelector('.wx'); if (wx) wx.innerHTML = I('sun', 16, '#6B6262') + wxText(d); if (d.job && d.weather == null) getWeather(); }
     updateBanner();
     var n = document.getElementById(id); if (n) { var dy = n.getBoundingClientRect().top - top; if (Math.abs(dy) > 0.5) window.scrollBy(0, dy); }
   }
-  function wxText(d) { return d.job && d.day !== todayKey() ? 'Weather for ' + dayLabel(d.day).replace(/^(Today|Yesterday) · /, '') + ' is added from weather records' : d.job ? (d.weather ? esc(d.weather) + ' at the job site · added for you' : 'Getting the weather for the job site…') : 'Weather is added for you once you pick a job'; }
+  function wxText(d) {
+    if (!d.job) return 'Weather is added for you once you pick a job';
+    if (d.weather === null || d.weather === undefined) return 'Getting the weather for the job site…';
+    if (!d.weather) return d.day === todayKey() ? 'Weather isn’t available right now. It’s checked again when you send.' : 'Weather records aren’t available for that day.';
+    return esc(d.weather) + ' · added for you';
+  }
   function renderReport() {
     var d = D(), e = d.errors || {}, k = d.day, me = person(S().me);
     var nErr = Object.keys(e).length;
@@ -224,33 +242,92 @@
     var wide = isWide();
     var head = '<header class="fh"><img class="logo" src="' + LOGO + '" alt="MKI LLC"><div class="wd">' + (wd(k) + ', ' + md(k)).toUpperCase() + '</div><h1 class="dt">HI, ' + esc(String(me.first || '').toUpperCase()) + '</h1></header>';
     var work = CARD['q-work'](d, e), mat = CARD['q-mat'](d, e), delay = CARD['q-delay'](d, e), safety = CARD['q-safety'](d, e), plan = CARD['q-plan'](d, e);
-    var body = (nErr ? '<div class="banner" id="banner">' + I('alert-circle', 20) + (nErr === 1 ? '1 answer is missing. It’s marked below.' : nErr + ' answers are missing. They’re marked below.') + '</div>' : '') +
+    var pend = d.sendKey && !sending ? '<div class="banner pend">' + I('alert-circle', 20) + 'Not sent yet. It’s saved on this ' + (isWide() ? 'iPad' : 'phone') + '. Tap Send when you have signal.</div>' : '';
+    var body = pend + (nErr ? '<div class="banner" id="banner">' + I('alert-circle', 20) + (nErr === 1 ? '1 answer is missing. It’s marked below.' : nErr + ' answers are missing. They’re marked below.') + '</div>' : '') +
       '<div class="pair">' + dateCard(d, e) + jobCard(d, e) + '</div>' + '<div class="wx">' + I('sun', 16, '#6B6262') + wx + '</div>' +
       '<div class="cols"><div class="col">' + work + plan + '</div><div class="col">' + mat + delay + safety + '</div></div>' +
       photosCard(d) +
-      '<div class="sendrow"><p class="help" style="margin:0">Goes to the office and the job folder right away.</p><button class="btn btn-primary" data-act="send">SEND REPORT</button></div>';
+      '<div class="sendrow"><p class="help" style="margin:0">Goes to the office right away. Photos go in the job folder.</p><button class="btn btn-primary" data-act="send">SEND REPORT</button></div>';
     // phone order: work, materials, delays, safety, plan (cols use display:contents, so reorder for phone)
     if (!wide) body = body.replace('<div class="cols"><div class="col">' + work + plan + '</div><div class="col">' + mat + delay + safety + '</div></div>', work + mat + delay + safety + plan);
     $app.innerHTML = previewBar('f') + head + '<main class="ql">' + body + '</main>';
-    if (d.job && !d.weather && d.day === todayKey()) getWeather();
+    if (d.job && d.weather == null) getWeather();
     [].forEach.call(document.querySelectorAll('textarea'), autoGrow);
   }
 
-  /* weather from the National Weather Service (free). Preview uses the Charlotte airport station. */
-  var wxBusy = false;
+  /* Weather from the National Weather Service (free, no key). The job site address is turned into a
+     map point (OpenStreetMap), the nearest NWS station is found for it, and that station's readings for
+     the report day are summed up: conditions and low to high temperature. Jobs without an address fall
+     back to Charlotte and say so. Works for late reports too, as far back as NWS keeps readings (about a week). */
+  var HOME = { lat: 35.2271, lon: -80.8431 };
+  function wxCache(k, v) {
+    try { var c = JSON.parse(localStorage.getItem('mki-wx-cache') || '{}'); if (v === undefined) return c[k]; c[k] = v; localStorage.setItem('mki-wx-cache', JSON.stringify(c)); } catch (e) { return undefined; }
+  }
+  function getJSON(url, ms) {
+    var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var tm = setTimeout(function () { if (ctl) ctl.abort(); }, ms || 8000);
+    return fetch(url, { headers: { Accept: 'application/geo+json, application/json' }, signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { clearTimeout(tm); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }, function (e) { clearTimeout(tm); throw e; });
+  }
+  function jobAddress(dj) { if (!dj) return ''; if (dj.requested) return dj.addr || ''; var j = job(dj.num); return (j && j.address) || ''; }
+  function geocode(addr) {
+    if (!addr) return Promise.resolve(null);
+    var k = 'g:' + addr.toLowerCase(), c = wxCache(k); if (c) return Promise.resolve(c);
+    return getJSON('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=' + encodeURIComponent(addr)).then(function (a) {
+      if (!a || !a[0]) return null; var v = { lat: +(+a[0].lat).toFixed(4), lon: +(+a[0].lon).toFixed(4) }; wxCache(k, v); return v;
+    }).catch(function () { return null; });
+  }
+  function station(pt) {
+    var k = 's:' + pt.lat + ',' + pt.lon, c = wxCache(k); if (c) return Promise.resolve(c);
+    return getJSON('https://api.weather.gov/points/' + pt.lat + ',' + pt.lon).then(function (j) {
+      var rl = j.properties.relativeLocation && j.properties.relativeLocation.properties, town = rl ? rl.city + ', ' + rl.state : '';
+      return getJSON(j.properties.observationStations).then(function (sj) {
+        var f = sj.features && sj.features[0]; if (!f) throw new Error('No weather station');
+        var v = { id: f.properties.stationIdentifier, town: town }; wxCache(k, v); return v;
+      });
+    });
+  }
+  function summarize(obs) {
+    var temps = [], count = {};
+    obs.forEach(function (o) {
+      var p = o.properties || {}, c = p.temperature && p.temperature.value, t = (p.textDescription || '').trim();
+      if (c != null) temps.push(Math.round(c * 9 / 5 + 32));
+      if (t) count[t] = (count[t] || 0) + 1;
+    });
+    if (!temps.length && !Object.keys(count).length) return '';
+    var byFreq = Object.keys(count).sort(function (a, b) { return count[b] - count[a]; });
+    var main = byFreq[0] || '', wet = byFreq.filter(function (t) { return /rain|drizzle|shower|thunder|storm|snow|sleet|freezing|ice/i.test(t); })[0];
+    var txt = main + (wet && wet !== main ? ', ' + wet.toLowerCase() + ' at times' : '');
+    if (temps.length) { var lo = Math.min.apply(null, temps), hi = Math.max.apply(null, temps); txt += (txt ? ', ' : '') + (lo === hi ? hi + '°F' : lo + '–' + hi + '°F'); }
+    return txt;
+  }
+  // Promise of the weather line for a job and day, or '' if it can't be found.
+  function dayWeather(dj, day) {
+    var addr = jobAddress(dj);
+    return geocode(addr).then(function (pt) {
+      return station(pt || HOME).then(function (st) {
+        var start = dObj(day); start.setHours(0, 0, 0, 0); var end = new Date(start); end.setDate(end.getDate() + 1); if (end > new Date()) end = new Date();
+        return getJSON('https://api.weather.gov/stations/' + st.id + '/observations?start=' + encodeURIComponent(start.toISOString()) + '&end=' + encodeURIComponent(end.toISOString())).then(function (j) {
+          var t = summarize(j.features || []); if (!t) return '';
+          return t + ' · ' + (pt ? (st.town || 'job site') : 'Charlotte, NC (no job address on file)');
+        });
+      });
+    }).catch(function () { return ''; });
+  }
+  var wxBusy = null;
   function getWeather() {
-    if (wxBusy) return; wxBusy = true;
-    fetch('https://api.weather.gov/stations/KCLT/observations/latest', { headers: { Accept: 'application/geo+json' } })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        var p = j.properties, c = p.temperature && p.temperature.value, t = (p.textDescription || '').trim();
-        var f = c == null ? null : Math.round(c * 9 / 5 + 32);
-        D().weather = (t || 'Weather') + (f != null ? ', ' + f + '°' : '');
-      })
-      .catch(function () { D().weather = 'Weather unavailable right now'; })
-      .then(function () { wxBusy = false; saveSoon(); var el = document.querySelector('.wx'); if (el && location.hash.indexOf('report') > -1 && D().day === todayKey()) el.innerHTML = I('sun', 16, '#6B6262') + esc(D().weather) + ' at the job site · added for you'; });
+    var d = D(), key = (d.job ? (d.job.num || d.job.name) : '') + '|' + d.day;
+    if (!d.job || wxBusy === key) return; wxBusy = key;
+    dayWeather(d.job, d.day).then(function (w) {
+      var dd = D(); if (wxBusy !== key) return; wxBusy = null;
+      if ((dd.job ? (dd.job.num || dd.job.name) : '') + '|' + dd.day !== key) return;
+      dd.weather = w || ''; saveSoon();
+      var el = document.querySelector('.wx'); if (el && location.hash.indexOf('report') > -1) el.innerHTML = I('sun', 16, '#6B6262') + wxText(dd);
+    });
   }
 
+  function wxTemp(w) { var m = String(w || '').match(/-?\d+(?:–-?\d+)?°F?/); return m ? m[0] : ''; }
+  function wxRest(w) { return String(w || '').replace(/,?\s*-?\d+(?:–-?\d+)?°F?/, '').replace(/^\s*·\s*/, '').trim(); }
   function validate(d) {
     var e = {};
     if (!d.job) e.job = 'Pick a job';
@@ -260,6 +337,7 @@
     return e;
   }
 
+  var sending = false;
   function send() {
     var d = D(), e = validate(d);
     if (Object.keys(e).length) {
@@ -267,11 +345,20 @@
       var b = document.getElementById('banner'); if (b) window.scrollTo(0, b.getBoundingClientRect().top + window.scrollY - 16);
       return;
     }
+    if (sending) return; sending = true;
+    // The weather is read again when Send is tapped, so it covers the whole day so far, not just the morning.
+    busy(-2);
+    dayWeather(d.job, d.day).then(function (w) { if (w) d.weather = w; else if (d.weather == null) d.weather = ''; saveSoon(); finishSend(d); });
+  }
+  function finishSend(d) {
     var now = new Date(), s = S();
-    var id = 'r' + now.getTime();
-    var rep = { id: id, date: d.day, sentDate: todayKey(), person: s.me, job: d.job.num || ('new:' + d.job.name), jobName: d.job.num ? null : d.job.name, sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'),
-      weather: d.day === todayKey() ? (d.weather || '') : '', work: items(d.work), mat: { yes: d.mat.yes, text: d.mat.yes ? d.mat.text.trim() : '' }, delay: { yes: d.delay.yes, text: d.delay.yes ? d.delay.text.trim() : '' }, safety: { yes: d.safety.yes, text: d.safety.yes ? d.safety.text.trim() : '' }, plan: items(d.plan), photos: d.photos.length, videos: d.photos.filter(isVid).length, photoData: d.photos.slice(0, MAXP) };
+    // The report's ID and send time are fixed on the first try, so trying again never makes a second report or folder.
+    if (!d.sendKey) { d.sendKey = { id: 'r' + now.getTime() + Math.random().toString(36).slice(2, 6), sentAt: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'), sentDate: todayKey() }; d.uploaded = []; DB.save(); }
+    var id = d.sendKey.id;
+    var rep = { id: id, date: d.day, sentDate: d.sendKey.sentDate, person: s.me, job: d.job.num || ('new:' + d.job.name), jobName: d.job.num ? null : d.job.name, sentAt: d.sendKey.sentAt,
+      weather: d.weather || '', work: items(d.work), mat: { yes: d.mat.yes, text: d.mat.yes ? d.mat.text.trim() : '' }, delay: { yes: d.delay.yes, text: d.delay.yes ? d.delay.text.trim() : '' }, safety: { yes: d.safety.yes, text: d.safety.yes ? d.safety.text.trim() : '' }, plan: items(d.plan), photos: d.photos.length, videos: d.photos.filter(isVid).length, photoData: d.photos.slice(0, MAXP) };
     if (LIVE.on) return sendLive(d, rep);
+    sending = false; closeLayer();
     if (d.job.requested) s.requests.push({ id: 'q' + now.getTime(), name: d.job.name, by: s.me, date: todayKey(), note: d.job.addr || '' });
     s.reports.unshift(rep);
     s.draft = null;
@@ -283,27 +370,36 @@
     go('#/sent/' + id);
   }
 
-  var sending = false;
   function busy(n, total, frac) {
     var el = document.getElementById('busytxt');
-    if (!el) { openLayer('<div class="busy" role="status" aria-live="polite"><div class="spin"></div><p id="busytxt"></p><div class="bar"><span id="busybar"></span></div></div>'); el = document.getElementById('busytxt'); }
-    el.textContent = n === -1 ? 'Sending the report…' : n === 0 ? 'Sending…' : 'Uploading ' + n + ' of ' + total + '…';
+    if (!el) { openLayer('<div class="busy" role="status" aria-live="polite"><div class="spin"></div><p id="busytxt"></p><div class="bar"><span id="busybar"></span></div><p class="bnote">Keep the app open until it says sent.</p>' + (LIVE.on ? '<button class="bcancel" data-act="cancelsend">Stop</button>' : '') + '</div>'); el = document.getElementById('busytxt'); }
+    el.textContent = n === -2 ? 'Getting the weather…' : n === -1 ? 'Sending the report…' : n === 0 ? 'Sending…' : 'Uploading ' + n + ' of ' + total + '…';
     var b = document.getElementById('busybar'); if (b) b.style.width = Math.round((n === -1 ? 1 : frac || 0) * 100) + '%';
   }
   function sendLive(d, rep) {
-    if (sending) return; sending = true;
     var s = S(), media = d.photos.filter(function (p) { return p && typeof p === 'object' && p.key; });
     rep.note = d.job.requested ? (d.job.addr || '') : '';
     rep.photoData = d.photos.map(function (p) { return typeof p === 'object' ? { v: p.v, key: p.key, thumb: p.thumb, dur: p.dur } : { thumb: p }; });
     busy(0);
-    LIVE.sendReport(rep, media, busy).then(function () {
+    var tried = !!d.triedOnce; d.triedOnce = true; DB.save();
+    LIVE.sendReport(rep, media, busy, {
+      tried: tried, uploaded: (d.uploaded || []).slice(),
+      onUploaded: function (i) { d.uploaded = d.uploaded || []; if (d.uploaded.indexOf(i) < 0) d.uploaded.push(i); saveSoon(); }
+    }).then(function () {
       sending = false; closeLayer();
       s.reports.unshift(rep); s.draft = null; LIVE.requests(); DB.save();
       media.forEach(function (m) { LIVE.blobs.del(m.key).catch(function () {}); });
       go('#/sent/' + rep.id);
     }, function (e) {
-      sending = false; closeLayer(); console.error(e);
-      toast(navigator.onLine === false ? 'No signal right now. Your report is saved on this phone, try again when you have signal.' : 'The report didn’t go through. Nothing was lost, tap Send again.');
+      sending = false; console.error(e);
+      if (e && e.cancelled) { closeLayer(); toast('Stopped. Your report is saved here. Tap Send when you’re ready.'); renderReport(); return; }
+      var off = navigator.onLine === false || (e && e.network);
+      var done = (d.uploaded || []).length, tot = media.length;
+      closeLayer();
+      openLayer('<div class="busy failed" role="alertdialog" aria-labelledby="ft"><div class="ficon">' + I('alert-circle', 34, '#fff') + '</div><h2 id="ft">NOT SENT YET</h2>' +
+        '<p>' + (off ? 'The signal dropped' + (e && e.timeout ? ' and the upload timed out' : '') + '.' : 'Microsoft didn’t accept the report' + (e && e.status ? ' (error ' + e.status + ')' : '') + '.') + ' Your report is saved on this ' + (isWide() ? 'iPad' : 'phone') + (tot ? ', and ' + done + ' of ' + tot + ' photos already made it, so trying again picks up where it stopped.' : '.') + '</p>' +
+        '<button class="btn btn-white" data-act="send">TRY AGAIN</button><button class="u lbtn" data-act="close">Close, I’ll send it later</button></div>');
+      renderReport();
     });
   }
 
@@ -574,7 +670,7 @@
     return '<a class="back" href="#/office/reports">' + I('chevron-left', 18) + 'All reports</a>' +
       '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + (late ? shortDate(r.sentDate) + ' ' : '') + sentText(r) + '</p></div><div class="filters"><button class="obtn tertiary" data-act="' + (LIVE.on && r.mediaUrl ? 'folder' : 'soon') + '" data-id="' + r.id + '">' + I('folder', 18) + (LIVE.on ? 'Open photo folder' : 'Open job folder') + '</button></div></div>' +
       '<div class="dbody"><div class="dl-col"><div class="facts">' +
-      '<div class="fact"><div class="l">WEATHER</div><div class="v">' + esc(/-?\d+°/.test(r.weather || '') ? r.weather.match(/-?\d+°/)[0] : '—') + '</div><div class="s">' + esc(r.weather ? r.weather.split(',')[0] : 'From weather records') + '</div></div>' +
+      '<div class="fact"><div class="l">WEATHER</div><div class="v">' + esc(wxTemp(r.weather) || '—') + '</div><div class="s">' + esc(r.weather ? wxRest(r.weather) : 'Not available') + '</div></div>' +
       '<div class="fact"><div class="l">PHOTOS & VIDEOS</div><div class="v">' + r.photos + '</div><div class="s">' + (r.videos ? mediaCount(r.photoData && r.photoData.length === r.photos ? r.photoData : []) || (r.videos + ' video') : r.photos ? 'Tap one to open it' : 'None sent') + '</div></div>' +
       '<div class="fact"><div class="l">SENT</div><div class="v">' + sentText(r) + '</div><div class="s">' + (late ? 'Late · on ' + shortDate(r.sentDate) : 'Same day') + '</div></div></div>' +
       list('Work completed today', r.work) +
@@ -604,17 +700,20 @@
       (s.requests.length ? '<div class="reqc"><div class="top">' + pill(s.requests.length + (s.requests.length === 1 ? ' new job request' : ' new job requests'), 'warn') + 'Foremen can ask for a job that isn’t on the list. Approve it, or merge it into a job that already exists.</div>' + reqs + '</div>' : '') +
       '<div class="filters"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" aria-label="Search jobs" placeholder="Search jobs" value="' + esc(F.jq) + '" data-fil="jq" autocomplete="off"></label>' + dd('jobsShow', F.jobsShow, [['active', 'Active jobs'], ['finished', 'Finished jobs'], ['all', 'All jobs']]) + '</div>' +
       '<div class="tbl cards"><table><thead><tr><th>JOB</th><th>FOREMAN</th><th>LAST REPORT</th><th>REPORTS</th><th>STATUS</th><th></th></tr></thead><tbody id="jobsbody">' + (rows || '<tr><td colspan="6" class="mut">No jobs here.</td></tr>') + '</tbody></table></div>' +
-      '<div class="ofoot">Finished jobs drop off the foreman’s list but keep their reports and photos. Job numbers match the job folders. Tap ··· to mark a job finished or reopen it.</div>';
+      '<div class="ofoot">Finished jobs drop off the foreman’s list but keep their reports and photos. Job numbers match the job folders. Tap ··· to edit a job, mark it finished or reopen it. Add the job site address so reports get that town’s weather.</div>';
   }
   function nextNum() { var yy = String(new Date().getFullYear()).slice(2), max = 3000; S().jobs.forEach(function (j) { var p = j.num.split('-'); if (p[0] === yy) max = Math.max(max, +p[1]); }); return yy + '-' + (max + 1); }
-  function openAddJob(prefill, reqId) {
-    openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Add a job"><div class="toprow"><h2>ADD A JOB</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
+  function openAddJob(prefill, reqId, addr, editNum) {
+    var ej = editNum ? job(editNum) : null;
+    if (ej) { prefill = ej.name; addr = ej.address; }
+    openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="' + (ej ? 'Edit job' : 'Add a job') + '"><div class="toprow"><h2>' + (ej ? 'EDIT JOB' : 'ADD A JOB') + '</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
       '<div class="fld"><label for="aj-n">Job name</label><input id="aj-n" maxlength="80" value="' + esc(prefill || '') + '" autocomplete="off"></div>' +
-      '<div class="fld"><label for="aj-a">Address<span class="opt">Optional</span></label><input id="aj-a" placeholder="Street, city" autocomplete="off"></div>' +
-      '<div class="fld"><label for="aj-f">Main foreman<span class="opt">Optional</span></label><label class="dd" style="display:flex"><select id="aj-f" style="width:100%;padding:15px 38px 15px 14px;font-size:16px;border-radius:12px"><option value="">Pick a foreman</option>' + S().people.map(function (p) { return '<option value="' + p.id + '">' + esc(p.name) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label></div>' +
+      '<div class="fld"><label for="aj-a">Job site address<span class="opt">For the weather on reports</span></label><input id="aj-a" placeholder="Street, city, state" value="' + esc(addr || '') + '" autocomplete="off"></div>' +
+      '<div class="fld"><label for="aj-f">Main foreman<span class="opt">Optional</span></label><label class="dd" style="display:flex"><select id="aj-f" style="width:100%;padding:15px 38px 15px 14px;font-size:16px;border-radius:12px"><option value="">Pick a foreman</option>' + S().people.filter(function (p) { return p.crew || (ej && ej.foreman === p.id); }).map(function (p) { return '<option value="' + p.id + '"' + (ej && ej.foreman === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label></div>' +
+      (ej ? '<div class="fld"><label>Job number</label><p style="margin:0;font:15px var(--in)">' + esc(ej.num) + ' <span class="mut" style="font-size:13px">· matches the job folder, so it can’t be changed here</span></p></div>' :
       '<div class="fld"><label for="aj-j">Job number</label><input id="aj-j" value="' + nextNum() + '" autocomplete="off"></div>' +
-      '<div class="note" style="font-size:13px;color:var(--mut)">' + I('bell', 18) + '<span>Shows up on every foreman’s job list right away. A job folder is made in SharePoint the first time a report comes in.</span></div>' +
-      '<div class="acts"><button class="obtn tertiary" data-act="close">Cancel</button><button class="obtn primary" data-act="savejob"' + (reqId ? ' data-req="' + reqId + '"' : '') + '>Add job</button></div></div>');
+      '<div class="note" style="font-size:13px;color:var(--mut)">' + I('bell', 18) + '<span>Shows up on every foreman’s job list right away. A job folder is made in SharePoint the first time a report comes in.</span></div>') +
+      '<div class="acts"><button class="obtn tertiary" data-act="close">Cancel</button><button class="obtn primary" data-act="' + (ej ? 'saveedit' : 'savejob') + '"' + (reqId ? ' data-req="' + reqId + '"' : '') + (ej ? ' data-num="' + esc(ej.num) + '"' : '') + '>' + (ej ? 'Save' : 'Add job') + '</button></div></div>');
     setTimeout(function () { var i = document.getElementById('aj-n'); if (i) i.focus(); }, 50);
   }
   function openMerge(reqId) {
@@ -665,7 +764,8 @@
       case 'signin': if (LIVE.on) { LIVE.signIn(); break; } S().me = 'aharbin'; DB.save(); go('#/'); break;
       case 'folder': var fr = S().reports.filter(function (x) { return x.id === t.dataset.id; })[0]; if (fr && fr.mediaUrl) window.open(fr.mediaUrl, '_blank', 'noopener'); break;
       case 'resetdemo': DB.reset(); toast('Sample data reset.'); go('#/signin'); break;
-      case 'signout': if (LIVE.on) { LIVE.signOut(); break; } S().me = null; DB.save(); go('#/signin'); break;
+      case 'signout': if (S().draft && hasContent(S().draft) && !t.dataset.sure) { openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Sign out"><div class="toprow"><h2>SIGN OUT?</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div><p style="margin:0;font:15px/1.45 var(--in)">There’s an unsent report on this ' + (isWide() ? 'iPad' : 'phone') + '. Signing out deletes it.</p><div class="acts"><button class="obtn tertiary" data-act="close">Stay signed in</button><button class="obtn primary" data-act="signout" data-sure="1">Sign out</button></div></div>'); break; }
+        closeLayer(); if (LIVE.on) { LIVE.signOut(); break; } S().me = null; DB.save(); go('#/signin'); break;
       case 'done': go('#/'); break;
       case 'close': closeLayer(); V = null; break;
       case 'viewer': openViewer(t.dataset.id, t.dataset.i); break;
@@ -674,12 +774,12 @@
       case 'vgo': vGo(+t.dataset.i); break;
       case 'jobs': openJobs(); break;
       case 'dates': openDates(); break;
-      case 'pickday': d = D(); d.day = t.dataset.day; if (d.day !== todayKey()) d.weather = null; saveSoon(); closeLayer(); var dy0 = window.scrollY; renderReport(); window.scrollTo(0, dy0); break;
+      case 'pickday': d = D(); d.day = t.dataset.day; d.weather = null; d.sendKey = null; d.uploaded = []; d.triedOnce = false; saveSoon(); closeLayer(); var dy0 = window.scrollY; renderReport(); window.scrollTo(0, dy0); break;
       case 'additem': d = D(); d[t.dataset.k].push(''); saveSoon(); refresh('q-' + t.dataset.k); focusItem(t.dataset.k, d[t.dataset.k].length - 1); break;
       case 'rmitem': d = D(); d[t.dataset.k].splice(+t.dataset.i, 1); if (!d[t.dataset.k].length) d[t.dataset.k] = ['']; saveSoon(); refresh('q-' + t.dataset.k); break;
-      case 'pickjob': d = D(); var j = job(t.dataset.num); if (!d.job || d.job.num !== j.num) { d.weather = null; } d.job = { num: j.num, name: j.name }; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
+      case 'pickjob': d = D(); var j = job(t.dataset.num); if (!d.job || d.job.num !== j.num) { d.weather = null; d.sendKey = null; d.uploaded = []; d.triedOnce = false; } d.job = { num: j.num, name: j.name }; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
       case 'reqjob': var q = document.querySelector('[data-act=jobq]'); openReqJob(q ? q.value : ''); break;
-      case 'usejob': var nm = document.getElementById('nj').value.trim(); if (!nm) { document.getElementById('nj').focus(); return; } d = D(); d.job = { num: null, name: nm, requested: true, addr: document.getElementById('na').value.trim() }; d.weather = null; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
+      case 'usejob': var nm = document.getElementById('nj').value.trim(); if (!nm) { document.getElementById('nj').focus(); return; } d = D(); d.sendKey = null; d.uploaded = []; d.triedOnce = false; d.job = { num: null, name: nm, requested: true, addr: document.getElementById('na').value.trim() }; d.weather = null; if (d.errors) delete d.errors.job; saveSoon(); closeLayer(); refresh('q-job'); break;
       case 'time': openTime(t.dataset.k); break;
       case 'ap': TT.ap = t.dataset.v; var pp = parseT(TT.buf, TT.ap); if (pp.ok && pp.autoPM) { /* 24h entry: convert back to 12h digits */ var m = toMin(pp.hm); TT.buf = String(Math.floor(m / 60) % 12 || 12) + String(m % 60).padStart(2, '0'); } TT.fresh = false; drawTime(); break;
       case 'key':
@@ -691,8 +791,13 @@
       case 'same': d = D(); var rec = (S().recent[S().me] || {}).hours; if (!rec) { var last = S().reports.filter(function (r) { return r.person === S().me; })[0]; rec = last ? { start: last.start, finish: last.finish } : { start: '07:00', finish: '15:30' }; } d.start = rec.start; d.finish = rec.finish; if (d.errors) delete d.errors.hours; saveSoon(); refresh('q-hours'); toast('Filled in ' + fmt12(rec.start) + ' to ' + fmt12(rec.finish)); break;
       case 'crew': d = D(); d.crew = Math.max(0, Math.min(99, d.crew + (+t.dataset.d))); var n = document.getElementById('crewn'); n.textContent = d.crew; n.classList.toggle('zero', !d.crew); if (d.errors && d.crew && d.errors.crew) { delete d.errors.crew; refresh('q-crew'); } saveSoon(); break;
       case 'yn': if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); d = D(); d[t.dataset.k].yes = t.dataset.v === '1'; if (d.errors) delete d.errors[t.dataset.k]; saveSoon(); refresh('q-' + t.dataset.k); break;
-      case 'rmphoto': d = D(); var gone = d.photos.splice(+t.dataset.i, 1)[0]; if (LIVE.on && gone && gone.key) LIVE.blobs.del(gone.key).catch(function () {}); saveSoon(); refresh('q-photos'); break;
+      case 'rmphoto': d = D(); d.uploaded = []; var gone = d.photos.splice(+t.dataset.i, 1)[0]; if (LIVE.on && gone && gone.key) LIVE.blobs.del(gone.key).catch(function () {}); saveSoon(); refresh('q-photos'); break;
       case 'send': send(); break;
+      case 'cancelsend': if (LIVE.on) LIVE.cancel(); break;
+      case 'discard':
+        openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Throw away report"><div class="toprow"><h2>THROW IT AWAY?</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div><p style="margin:0;font:15px/1.45 var(--in)">The unsent report for ' + esc(shortDate(S().draft.day)) + ' and its ' + mediaCount(S().draft.photos).toLowerCase() + ' will be deleted from this ' + (isWide() ? 'iPad' : 'phone') + '. This can’t be undone.</p><div class="acts"><button class="obtn tertiary" data-act="close">Keep it</button><button class="obtn primary" data-act="dodiscard">Throw it away</button></div></div>');
+        break;
+      case 'dodiscard': var old = S().draft; S().draft = null; DB.save(); if (LIVE.on && old) (old.photos || []).forEach(function (m) { if (m && m.key) LIVE.blobs.del(m.key).catch(function () {}); }); closeLayer(); route(); break;
       case 'soon': break;
       case 'chip': F.chips[t.dataset.k] = !F.chips[t.dataset.k]; F.more = 9; route(); break;
       case 'more': F.more += 9; document.getElementById('results') ? (document.getElementById('results').innerHTML = resultsHTML()) : route(); break;
@@ -705,14 +810,23 @@
         if (!nm2.value.trim()) { bad(nm2, 'Add the job name'); return; }
         if (!/^[A-Za-z0-9-]{1,20}$/.test(num)) { bad(nf, 'Use numbers and dashes only, like 26-3009'); return; }
         if (job(num)) { bad(nf, 'Job ' + num + ' already exists'); return; }
-        var nj = { num: num, name: nm2.value.trim().slice(0, 80), active: true, foreman: document.getElementById('aj-f').value || null }, moved = [];
+        var nj = { num: num, name: nm2.value.trim().slice(0, 80), active: true, foreman: document.getElementById('aj-f').value || null, address: document.getElementById('aj-a').value.trim().slice(0, 200) }, moved = [];
         S().jobs.push(nj);
         if (t.dataset.req) { var rqo = S().requests.filter(function (x) { return x.id === t.dataset.req; })[0]; if (rqo) S().reports.forEach(function (r) { if (r.jobName === rqo.name && r.job.indexOf('new:') === 0) { r.job = num; r.jobName = null; moved.push(r); } }); S().requests = S().requests.filter(function (x) { return x.id !== t.dataset.req; }); }
         DB.save(); closeLayer(); route(); if (LIVE.on) sync(LIVE.addJob(nj).then(function () { return LIVE.patchReports(moved); }), 'Job added. Foremen see it next time they open the app.'); else toast('Job added. Foremen see it right away.'); break;
-      case 'approve': var rr = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; openAddJob(rr.name, rr.id); break;
+      case 'approve': var rr = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; openAddJob(rr.name, rr.id, rr.note || ''); break;
+      case 'editjob': var om = document.querySelector('.menu'); if (om) om.remove(); openAddJob(null, null, null, t.dataset.num); break;
+      case 'saveedit':
+        var ej2 = job(t.dataset.num), en = document.getElementById('aj-n'); var eerr = document.getElementById('aj-err'); if (eerr) eerr.remove(); en.classList.remove('err');
+        if (!en.value.trim()) { en.classList.add('err'); en.focus(); en.insertAdjacentHTML('afterend', '<div class="emsg" id="aj-err">' + I('alert-circle', 16) + 'Add the job name</div>'); return; }
+        var before = { name: ej2.name, address: ej2.address, foreman: ej2.foreman };
+        ej2.name = en.value.trim().slice(0, 80); ej2.address = document.getElementById('aj-a').value.trim().slice(0, 200); ej2.foreman = document.getElementById('aj-f').value || null;
+        DB.save(); closeLayer(); route();
+        if (LIVE.on) sync(LIVE.updateJob(ej2), 'Job saved.', function () { ej2.name = before.name; ej2.address = before.address; ej2.foreman = before.foreman; DB.save(); route(); }); else toast('Job saved.');
+        break;
       case 'merge': openMerge(t.dataset.id); break;
       case 'domerge': var to = document.getElementById('mg').value; if (!to) return; var rq2 = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; var moved2 = []; S().reports.forEach(function (r) { if (r.jobName === rq2.name && r.job.indexOf('new:') === 0) { r.job = to; r.jobName = null; moved2.push(r); } }); S().requests = S().requests.filter(function (x) { return x.id !== rq2.id; }); DB.save(); sync(LIVE.on && LIVE.patchReports(moved2)); closeLayer(); route(); toast('Merged into ' + job(to).name + '.'); break;
-      case 'jobmenu': var openM = document.querySelector('.menu'); var same = openM && openM.dataset.num === t.dataset.num; if (openM) openM.remove(); if (same) break; var jm = job(t.dataset.num); var mn = document.createElement('div'); mn.className = 'menu'; mn.setAttribute('role', 'menu'); mn.dataset.num = jm.num; mn.innerHTML = '<button role="menuitem" data-act="jobstate" data-num="' + esc(jm.num) + '">' + I(jm.active ? 'check' : 'arrow-right', 16) + (jm.active ? 'Mark job finished' : 'Reopen job') + '</button>'; t.parentNode.appendChild(mn); break;
+      case 'jobmenu': var openM = document.querySelector('.menu'); var same = openM && openM.dataset.num === t.dataset.num; if (openM) openM.remove(); if (same) break; var jm = job(t.dataset.num); var mn = document.createElement('div'); mn.className = 'menu'; mn.setAttribute('role', 'menu'); mn.dataset.num = jm.num; mn.innerHTML = '<button role="menuitem" data-act="editjob" data-num="' + esc(jm.num) + '">' + I('file-text', 16) + 'Edit job</button><button role="menuitem" data-act="jobstate" data-num="' + esc(jm.num) + '">' + I(jm.active ? 'check' : 'arrow-right', 16) + (jm.active ? 'Mark job finished' : 'Reopen job') + '</button>'; t.parentNode.appendChild(mn); break;
       case 'jobstate': var jj = job(t.dataset.num); jj.active = !jj.active; DB.save(); route(); sync(LIVE.on && LIVE.updateJob(jj)); toast(jj.name + (jj.active ? ' is active again.' : ' marked finished.'), function () { jj.active = !jj.active; DB.save(); route(); sync(LIVE.on && LIVE.updateJob(jj)); }); break;
       case 'rem': var pr = person(t.dataset.id); pr.reminder = !pr.reminder; DB.save(); route(); sync(LIVE.on && LIVE.savePerson(pr)); break;
     }
@@ -729,7 +843,7 @@
   });
   document.addEventListener('change', function (ev) {
     var t = ev.target;
-    if (t.id === 'pd' && t.value) { var dd0 = D(), mx = todayKey(); if (t.value <= mx) { dd0.day = t.value; if (dd0.day !== mx) dd0.weather = null; saveSoon(); closeLayer(); var yy = window.scrollY; renderReport(); window.scrollTo(0, yy); } return; }
+    if (t.id === 'pd' && t.value) { var dd0 = D(), mx = todayKey(); if (t.value <= mx) { dd0.day = t.value; dd0.weather = null; dd0.sendKey = null; dd0.uploaded = []; dd0.triedOnce = false; saveSoon(); closeLayer(); var yy = window.scrollY; renderReport(); window.scrollTo(0, yy); } return; }
     if (t.dataset.fil && t.tagName === 'SELECT') { F[t.dataset.fil] = t.value; F.more = 9; route(); }
     if (t.dataset.act === 'photos') addPhotos(t.files);
   });
@@ -765,7 +879,7 @@
         img.onerror = function () { res(null); }; img.src = url;
       });
     });
-    Promise.all(jobs).then(function (urls) { urls.forEach(function (u) { if (u) d.photos.push(u); }); saveSoon(); refresh('q-photos'); if (msgs.length) toast(msgs[0]); });
+    Promise.all(jobs).then(function (urls) { urls.forEach(function (u) { if (u) d.photos.push(u); }); d.uploaded = []; saveSoon(); refresh('q-photos'); if (msgs.length) toast(msgs[0]); });
   }
 
 

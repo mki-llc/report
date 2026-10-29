@@ -58,6 +58,7 @@
   function token(scopes, extra) {
     return pca.acquireTokenSilent({ scopes: scopes, account: account }).then(function (r) { return r.accessToken; }).catch(function (e) {
       if (e instanceof msal.InteractionRequiredAuthError || /interaction_required|consent_required|login_required|no_tokens_found/.test(e.errorCode || '')) {
+        try { sessionStorage.setItem('mki-return', location.hash || ''); } catch (x) {}
         return pca.acquireTokenRedirect({ scopes: scopes, account: account, extraScopesToConsent: extra }).then(function () { return NEVER; });
       }
       throw e;
@@ -84,9 +85,26 @@
     });
   }
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  // Every request has a time limit, so a dead connection ends in a clear message instead of a spinner
+  // that never stops. LIVE.cancel() stops whatever is running.
+  var inflight = [];
+  function timed(url, opts, ms) {
+    if (typeof AbortController === 'undefined') return fetch(url, opts);
+    var c = new AbortController(), timedOut = false; inflight.push(c);
+    var tm = setTimeout(function () { timedOut = true; c.abort(); }, ms || 45000);
+    var o = {}; for (var k in opts) o[k] = opts[k]; o.signal = c.signal;
+    function done() { clearTimeout(tm); inflight = inflight.filter(function (x) { return x !== c; }); }
+    return fetch(url, o).then(function (r) { done(); return r; }, function (e) {
+      done();
+      var er = new Error(timedOut ? 'Timed out' : (e && e.message) || 'Network error');
+      er.timeout = timedOut; er.cancelled = !timedOut && c.cancelledByUser; er.network = true; throw er;
+    });
+  }
+  LIVE.cancel = function () { inflight.slice().forEach(function (c) { c.cancelledByUser = true; c.abort(); }); };
   function send(url, opts, tries) {
     tries = tries || 0;
-    return fetch(url, opts).then(function (r) {
+    var big = opts && opts.body && typeof Blob !== 'undefined' && opts.body instanceof Blob;
+    return timed(url, opts, big ? 180000 : 45000).then(function (r) {
       if ((r.status === 429 || r.status === 503 || r.status === 504) && tries < 4) return wait((+r.headers.get('Retry-After') || 2) * 1000).then(function () { return send(url, opts, tries + 1); });
       return r;
     });
@@ -248,6 +266,9 @@
       var h = location.hash.replace(/^#\/?/, '');
       // After Microsoft sends you back, the address can hold sign-in leftovers, so anything that isn't a screen goes home.
       var known = /^(office|report|sent)/.test(h);
+      // Coming back from a Microsoft sign-in that interrupted something: go back to that screen.
+      var back = null; try { back = sessionStorage.getItem('mki-return'); sessionStorage.removeItem('mki-return'); } catch (x) {}
+      if (back && /^#\/(office|report)/.test(back)) { h = back.replace(/^#\/?/, ''); known = true; location.hash = back; if (/^#\/report/.test(back)) setTimeout(function () { window.APP.toast('You’re signed in again. Tap Send to finish your report.'); }, 600); }
       if (s.role === 'office' && !known) location.hash = '#/office';
       else if (!known || (s.role !== 'office' && /^office/.test(h))) location.hash = '#/';
       window.APP.route();
@@ -319,11 +340,11 @@
       var at = 0;
       function next(tries) {
         var end = Math.min(at + CHUNK, blob.size);
-        return fetch(s.uploadUrl, { method: 'PUT', headers: { 'Content-Range': 'bytes ' + at + '-' + (end - 1) + '/' + blob.size }, body: blob.slice(at, end) }).then(function (r) {
+        return timed(s.uploadUrl, { method: 'PUT', headers: { 'Content-Range': 'bytes ' + at + '-' + (end - 1) + '/' + blob.size }, body: blob.slice(at, end) }, 180000).then(function (r) {
           if (!r.ok && r.status !== 202) { if ((tries || 0) < 3) return wait(1500).then(function () { return next((tries || 0) + 1); }); return handle(r); }
           onBytes(end - at); at = end;
           return at < blob.size ? next(0) : r.json();
-        }, function (e) { if ((tries || 0) < 3) return wait(1500).then(function () { return next((tries || 0) + 1); }); throw e; });
+        }, function (e) { if (!e.cancelled && (tries || 0) < 3) return wait(1500).then(function () { return next((tries || 0) + 1); }); throw e; });
       }
       return next(0);
     });
@@ -332,25 +353,32 @@
     var n = (m.name || '').match(/\.[A-Za-z0-9]{2,5}$/); if (n) return n[0].toLowerCase();
     var t = blob.type || ''; return /png/.test(t) ? '.png' : /quicktime/.test(t) ? '.mov' : /mp4/.test(t) ? '.mp4' : /video/.test(t) ? '.mp4' : '.jpg';
   }
-  function uploadMedia(rep, media, progress) {
-    if (!media.length) return Promise.resolve(null);
+  // The folder name is fixed when the foreman first taps Send (date, name, time), so trying again after a
+  // dropped connection fills the same folder instead of making a new one. Files already uploaded are skipped.
+  function reportFolder(rep) {
     return getDrive().then(function () { return jobFolderName(rep); }).then(function (jf) {
-      var folder = CFG.jobsFolder + '/' + jf + '/' + clean(rep.date + ' ' + rep.personName + ' ' + rep.sentAt.replace(':', ''));
+      return CFG.jobsFolder + '/' + jf + '/' + clean(rep.date + ' ' + rep.personName + ' ' + rep.sentAt.replace(':', ''));
+    });
+  }
+  function folderInfo(path) {
+    return api('GET', '/drives/' + drive.id + '/root:/' + encPath(path) + '?$select=id,webUrl').then(function (f) { return { id: f.id, url: f.webUrl, path: path }; });
+  }
+  function uploadMedia(rep, media, progress, already, onUploaded) {
+    if (!media.length) return Promise.resolve(null);
+    already = already || [];
+    return reportFolder(rep).then(function (folder) {
       return Promise.all(media.map(function (m) { return LIVE.blobs.get(m.key); })).then(function (blobs) {
-        var total = 0, done = 0, n = 0, first = null;
-        blobs.forEach(function (b) { if (b) total += b.size; });
+        var total = 0, done = 0, n = 0, todo = 0;
+        blobs.forEach(function (b, i) { if (b && already.indexOf(i) < 0) { total += b.size; todo++; } });
         var chain = Promise.resolve();
         blobs.forEach(function (b, i) {
-          if (!b) return;
+          if (!b || already.indexOf(i) > -1) return;
           chain = chain.then(function () {
-            n++; progress(n, blobs.length, total ? done / total : 0);
-            return uploadOne(folder + '/' + String(i + 1).padStart(2, '0') + extOf(media[i], b), b, function (bytes) { done += bytes; progress(n, blobs.length, total ? done / total : 1); }).then(function (it) { if (!first) first = it; });
+            n++; progress(n, todo, total ? done / total : 0);
+            return uploadOne(folder + '/' + String(i + 1).padStart(2, '0') + extOf(media[i], b), b, function (bytes) { done += bytes; progress(n, todo, total ? done / total : 1); }).then(function () { if (onUploaded) onUploaded(i); });
           });
         });
-        return chain.then(function () {
-          if (!first) return null;
-          return api('GET', '/drives/' + drive.id + '/items/' + first.parentReference.id + '?$select=id,webUrl').then(function (f) { return { id: f.id, url: f.webUrl }; });
-        });
+        return chain.then(function () { return folderInfo(folder); });
       });
     });
   }
@@ -386,14 +414,24 @@
     };
   }
   // Photos go up first, then the report row, so a dropped signal never leaves a report without its photos.
-  LIVE.sendReport = function (rep, media, progress) {
+  function findReport(id) {
+    return api('GET', listPath(L.reports) + "/items?$expand=fields&$filter=fields/Title eq '" + String(id).replace(/'/g, "''") + "'", undefined, null, { Prefer: 'HonorNonIndexedQueriesWarningMayFailRandomly' })
+      .then(function (j) { return (j && j.value && j.value[0]) || null; });
+  }
+  // opts: { uploaded: [indexes already in SharePoint], onUploaded(i), tried: true if an earlier attempt may have saved the row }
+  LIVE.sendReport = function (rep, media, progress, opts) {
+    opts = opts || {};
     rep.personName = me.displayName;
-    return uploadMedia(rep, media, progress).then(function (folder) {
+    // Sign-in is checked before anything is uploaded, so an expired sign-in can't leave half a folder behind.
+    return token(BASE).then(function () {
+      return uploadMedia(rep, media, progress, opts.uploaded, opts.onUploaded);
+    }).then(function (folder) {
       progress(-1);
-      return api('POST', listPath(L.reports) + '/items', { fields: repFields(rep, folder) }).then(function (it) {
-        rep.itemId = it.id; if (folder) { rep.mediaFolder = folder.id; rep.mediaUrl = folder.url; }
-        return rep;
-      });
+      if (folder) { rep.mediaFolder = folder.id; rep.mediaUrl = folder.url; rep.mediaPath = folder.path; }
+      return (opts.tried ? findReport(rep.id).catch(function () { return null; }) : Promise.resolve(null)).then(function (found) {
+        if (found) return found;
+        return api('POST', listPath(L.reports) + '/items', { fields: repFields(rep, folder) });
+      }).then(function (it) { rep.itemId = it.id; return rep; });
     });
   };
   LIVE.patchReports = function (list) {
@@ -403,10 +441,10 @@
     }));
   };
   LIVE.addJob = function (j) {
-    return api('POST', listPath(L.jobs) + '/items', { fields: { Title: j.num, JobName: j.name, Active: j.active, Foreman: j.foreman || '' } }).then(function (it) { j.itemId = it.id; jobFolders = null; return j; });
+    return api('POST', listPath(L.jobs) + '/items', { fields: { Title: j.num, JobName: j.name, Active: j.active, Foreman: j.foreman || '', Address: j.address || '' } }).then(function (it) { j.itemId = it.id; jobFolders = null; return j; });
   };
   LIVE.updateJob = function (j) {
-    return api('PATCH', listPath(L.jobs) + '/items/' + j.itemId + '/fields', { JobName: j.name, Active: j.active, Foreman: j.foreman || '' });
+    return api('PATCH', listPath(L.jobs) + '/items/' + j.itemId + '/fields', { JobName: j.name, Active: j.active, Foreman: j.foreman || '', Address: j.address || '' });
   };
   LIVE.savePerson = function (p) {
     var f = { Title: p.email || p.id, FullName: p.name, Role: p.role || '', Reminder: !!p.reminder, UsualJob: p.usualJob || '' };

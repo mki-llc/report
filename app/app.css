@@ -510,3 +510,14 @@ body.live .side{height:100vh;height:100dvh}
 .side .nav.send{margin-top:auto;border:1.5px solid rgba(255,255,255,.25);color:#fff}
 .side .nav.send + .me{margin-top:16px}
 @media (max-width:1023px){ body.live .tabs a{width:auto;flex:1} }
+
+/* Sending: keep-open note, stop button, and the "not sent yet" panel */
+.busy .bnote{font:13px var(--in);color:rgba(255,255,255,.7);margin:6px 0 0}
+.busy .bcancel{margin-top:14px;background:transparent;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:999px;padding:10px 22px;font:600 15px var(--in);min-height:44px}
+.busy.failed{gap:14px;padding:24px;text-align:center}
+.busy.failed h2{font:800 32px var(--bc);margin:0;color:#fff}
+.busy.failed p{font:15px/1.45 var(--in);color:rgba(255,255,255,.85);margin:0;max-width:420px}
+.busy.failed .btn{width:100%;max-width:420px}
+.busy.failed .lbtn{color:#fff;font:500 15px var(--in);min-height:44px}
+.busy .ficon{width:64px;height:64px;border-radius:999px;background:var(--red);display:flex;align-items:center;justify-content:center}
+.banner.pend{background:#FEF0C7;color:#7A2E0E}

@@ -377,7 +377,7 @@
   }
   var CHUNK = 327680 * 10;
   function uploadOne(path, blob, onBytes) {
-    var url = '/drives/' + drive.id + '/root:/' + encPath(path);
+    var url = path && path.url ? path.url : '/drives/' + drive.id + '/root:/' + encPath(path);
     if (blob.size < 4e6) return api('PUT', url + ':/content?@microsoft.graph.conflictBehavior=replace', blob, null, { 'Content-Type': blob.type || 'application/octet-stream' }).then(function (it) { onBytes(blob.size); return it; });
     return api('POST', url + ':/createUploadSession', { item: { '@microsoft.graph.conflictBehavior': 'replace' } }).then(function (s) {
       var at = 0;
@@ -509,14 +509,17 @@
   };
   // Saves a PDF next to the report's photos (or in a new report folder if there are none).
   LIVE.savePdf = function (r, name, blob) {
-    var p = r.mediaFolder ? api('GET', '/drives/' + (drive && drive.id) + '/items/' + r.mediaFolder + '?$select=id,webUrl,name,parentReference').catch(function () { return null; }) : Promise.resolve(null);
-    return getDrive().then(function () { return p; }).then(function (f) {
-      if (f && f.parentReference && f.parentReference.path) return f.parentReference.path.replace(/^\/drive\/root:\/?/, '') + '/' + f.name;
-      return reportFolder({ job: r.job, jobName: r.jobName, date: r.date, personName: r.personName, sentAt: r.sentAt });
-    }).then(function (path) {
-      return uploadOne(decodeURIComponent(path) + '/' + name, blob, function () {}).then(function (it) {
-        if (!r.mediaFolder) return folderInfo(decodeURIComponent(path)).then(function (fi) { r.mediaFolder = fi.id; r.mediaUrl = fi.url; return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { MediaFolderId: fi.id, MediaFolderUrl: fi.url }); }).then(function () { return it; });
-        return it;
+    return getDrive().then(function () {
+      // Upload straight into the report's folder by its id. (Building a path from parentReference broke: for a
+      // site library Graph gives "/drives/<id>/root:/...", not "/drive/root:/...".)
+      var into = r.mediaFolder ? api('GET', '/drives/' + drive.id + '/items/' + r.mediaFolder + '?$select=id,folder').then(function (f) { return f && f.folder ? f.id : null; }, function () { return null; }) : Promise.resolve(null);
+      return into.then(function (fid) {
+        if (fid) return uploadOne({ url: '/drives/' + drive.id + '/items/' + fid + ':/' + encodeURIComponent(name) }, blob, function () {});
+        return reportFolder({ job: r.job, jobName: r.jobName, date: r.date, personName: r.personName, sentAt: r.sentAt }).then(function (path) {
+          return uploadOne(path + '/' + name, blob, function () {}).then(function (it) {
+            return folderInfo(path).then(function (fi) { r.mediaFolder = fi.id; r.mediaUrl = fi.url; return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { MediaFolderId: fi.id, MediaFolderUrl: fi.url }); }).then(function () { return it; });
+          });
+        });
       });
     });
   };

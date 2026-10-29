@@ -112,7 +112,7 @@
   var LIVE = window.LIVE || { on: false };
   // Saves to SharePoint in the background; if it fails the office sees a message and can try again.
   // Saves to SharePoint in the background. If it fails, the change is put back on screen so nobody thinks it saved.
-  function sync(pr, okMsg, undo) { if (!LIVE.on || !pr) return; pr.then(function () { if (okMsg) toast(okMsg); }, function (e) { console.error(e); if (undo) undo(); toast('Not saved', { kind: 'error', msg: e && e.status === 403 ? 'Your account isn’t allowed to change that. Ask Alex to check your access.' : 'Couldn’t save that to SharePoint, so it was put back. Check your connection and try again.' }); }); }
+  function sync(pr, okMsg, undo) { if (!LIVE.on || !pr) return; pr.then(function () { if (okMsg) toast(okMsg); }, function (e) { console.error(e); if (undo) undo(); toast('Change not saved', { kind: 'error', msg: failWhy(e) + (undo ? ' Your change was undone so nothing is out of sync.' : '') }); }); }
   function mmss(sec) { sec = Math.round(sec || 0); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
   function playBadge(p, sm) { return isVid(p) ? '<span class="vbadge' + (sm ? ' sm' : '') + '">' + I('play', sm ? 10 : 12, '#fff') + (sm ? '' : mmss(p.dur)) + '</span>' : ''; }
   function mediaCount(arr) { var v = (arr || []).filter(isVid).length, ph = (arr || []).length - v; return (ph ? ph + (ph === 1 ? ' photo' : ' photos') : '') + (ph && v ? ' · ' : '') + (v ? v + (v === 1 ? ' video' : ' videos') : '') || 'None'; }
@@ -832,7 +832,7 @@
       (r.photoData || []).forEach(function (x, i) { if (!isVid(x) && (!v.photos || v.photos.indexOf(i) > -1)) chosen.push({ x: x, t: (r.taken || [])[i], who: others.length ? person(r.person).short : '' }); });
       others.forEach(function (o) { var sel = (v.otherPhotos || {})[o.id]; (o.photoData || []).forEach(function (x, i) { if (!isVid(x) && (!sel || sel.indexOf(i) > -1)) chosen.push({ x: x, t: (o.taken || [])[i], who: person(o.person).short }); }); });
       return GC.toJpegs(chosen.map(function (c) { return function () { return photoSrc(c.x); }; })).then(function (imgs) {
-        imgs.forEach(function (im, k) { if (!im) throw new Error('Photo ' + (k + 1) + ' couldn’t be loaded. Check the connection and try again'); });
+        imgs.forEach(function (im, k) { if (!im) throw friendly('Photo ' + (k + 1) + ' couldn’t be downloaded from SharePoint. Check the connection and try again, or untick that photo'); });
         var all = [r].concat(others);
         return { kind: 'gc', job: jobInfo(r), reportNo: v.no || null, date: r.date, weather: r.weather, foreman: { name: r.personName || p.name, role: p.role || '' }, sentDate: r.sentDate, sentAt: r.sentAt,
           foremen: all.map(function (x) { return x.personName || person(x.person).name; }),
@@ -945,13 +945,32 @@
     // The report number is only given when it can be saved, so the same number is never handed out twice.
     var canStore = !LIVE.on || LIVE.hasReviewColumn(), fresh = !v.no && canStore;
     if (fresh) v.no = nextReportNo(r);
-    return gcSave(r, true).catch(function (e) { if (fresh) { v.no = null; throw new Error('the report couldn’t be saved first. Check the connection and try again'); } }).then(function () { return gcModel(r); }).then(function (m) { return GC.makePdf(m).then(function (b) { return { m: m, blob: b, name: GC.fileName(m) }; }); });
+    return gcSave(r, true).catch(function (e) { if (fresh) { v.no = null; throw friendly('The report couldn’t be saved before making the PDF. Check the connection and try again'); } }).then(function () { return gcModel(r); }).then(function (m) { return GC.makePdf(m).then(function (b) { return { m: m, blob: b, name: GC.fileName(m) }; }); });
   }
   function mb(n) { return (n / 1048576).toFixed(1) + ' MB'; }
   // Lines from another foreman's report, labelled with his name, for a combined GC report.
   function otherLines(o, k) { var src = o.review && o.review.sections && o.review.sections[k] ? GC.lines(o.review.sections[k].text) : GC.original(o)[k]; var yes = { delay: o.delay.yes, safety: o.safety.yes, mat: o.mat.yes }; if (k in yes && !yes[k]) return []; return src.map(function (l) { return person(o.person).short + ': ' + l; }); }
   var NONE = { delay: 'No delays reported.', safety: 'No safety or quality issues reported.', mat: 'Nothing needed.' };
-  function gcFail(e) { closeLayer(); console.error(e); toast('That didn’t work', { kind: 'error', msg: e && e.status === 403 ? 'Your account isn’t allowed to do that. Ask Alex to check your access.' : (((e && e.message) || 'Check the connection') + '. Try again.').replace(/^./, function (c) { return c.toUpperCase(); }) }); }
+  // Error toasts say what didn't happen, why in plain words, and what to do. Microsoft's raw error text never shows.
+  var FAIL_TITLE = { pdf: 'PDF not made', folder: 'PDF not saved to the job folder', mail: 'Email to GC is unavailable right now', record: 'As-sent PDF not saved' };
+  function failWhy(e) {
+    var st = e && e.status, m = String((e && e.message) || '');
+    if (e && e.friendly) return m.replace(/^./, function (c) { return c.toUpperCase(); }) + '.';
+    if (st === 401 || /sign.?in|interaction_required|login/i.test(m)) return 'You’ve been signed out of Microsoft 365. Sign in again, then try once more.';
+    if (st === 403) return 'Your Microsoft 365 account doesn’t have permission for this. Ask Dan to check your access.';
+    if (st === 404) return 'The report’s folder in SharePoint couldn’t be found. Try again, and tell Dan if it keeps happening.';
+    if (st === 429 || st >= 500) return 'Microsoft 365 is busy right now. Wait a minute, then try again.';
+    if (!st || /network|fetch|abort|timed? ?out/i.test(m)) return 'The connection dropped. Check Wi-Fi or signal, then try again.';
+    return 'Something went wrong on Microsoft’s side. Try again, and tell Dan if it keeps happening.';
+  }
+  function gcFailFor(kind, btn) {
+    return function (e) {
+      closeLayer(); console.error(e);
+      var id = btn && btn.dataset.id, act = btn && btn.dataset.act;
+      toast(FAIL_TITLE[kind], { kind: 'error', msg: failWhy(e), action: act ? { label: 'Try again', fn: function () { var b2 = document.querySelector('[data-act="' + act + '"][data-id="' + id + '"]'); if (b2) b2.click(); } } : null });
+    };
+  }
+  function friendly(msg) { var e = new Error(msg); e.friendly = true; return e; }
 
   /* ---------------- office: jobs ---------------- */
   function renderJobs() {
@@ -1041,7 +1060,7 @@
       case 'offundo':
         var uo = offs().filter(function (o) { return o.person === S().me && o.date === t.dataset.day; });
         S().offs = offs().filter(function (o) { return uo.indexOf(o) < 0; }); DB.save();
-        if (LIVE.on) uo.forEach(function (o) { if (o.itemId) LIVE.unmarkOff(o).catch(function () { toast('Couldn’t undo', { kind: 'error', msg: 'Check your signal and try again.' }); offs().push(o); DB.save(); }); });
+        if (LIVE.on) uo.forEach(function (o) { if (o.itemId) LIVE.unmarkOff(o).catch(function () { toast('Still marked off', { kind: 'error', msg: 'The connection dropped before the change saved. Check your signal and try again.' }); offs().push(o); DB.save(); }); });
         location.replace('#/'); toast('You’re not marked off'); break;
       case 'signin': if (LIVE.on) { LIVE.signIn(); break; } S().me = 'aharbin'; DB.save(); go('#/'); break;
       case 'folder': var fr = S().reports.filter(function (x) { return x.id === t.dataset.id; })[0]; if (fr && fr.mediaUrl) window.open(fr.mediaUrl, '_blank', 'noopener'); break;
@@ -1105,7 +1124,7 @@
         loadAllMedia([rr9]).then(function () { return recordPdf(rr9, rr9.photoData || []); }).then(function (out) {
           gcText('Saving it to the job folder…');
           return LIVE.savePdf(rr9, out.name, out.blob).then(function () { return LIVE.markRecord(rr9, out.name); });
-        }).then(function () { closeLayer(); route(); toast('Saved in the job folder', { msg: 'The as-sent PDF is with the job’s photos.' }); }, gcFail); break;
+        }).then(function () { closeLayer(); route(); toast('Saved in the job folder', { msg: 'The as-sent PDF is with the job’s photos.' }); }, gcFailFor('record', t)); break;
       case 'gcrevert': var rr0 = gcReport(t.dataset.id); rv(rr0).sections[t.dataset.k].text = GC.original(rr0)[t.dataset.k].slice(); gcSave(rr0); var yr = window.scrollY; route(); window.scrollTo(0, yr); break;
       case 'gcall': var ra = gcReport(t.dataset.id); rv(ra).photos = t.dataset.v === '1' ? null : []; rv(ra).otherPhotos = {}; combined(ra).forEach(function (o) { rv(ra).otherPhotos[o.id] = t.dataset.v === '1' ? null : []; }); gcSave(ra); var ya = window.scrollY; route(); window.scrollTo(0, ya); break;
       case 'gcpdf':
@@ -1113,10 +1132,10 @@
         gcMake(gcReport(t.dataset.id)).then(function (out) {
           closeLayer(); var u = URL.createObjectURL(out.blob), a = document.createElement('a'); a.href = u; a.download = out.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
           var yd = window.scrollY; route(); window.scrollTo(0, yd); gcMissingWarn(); toast('PDF downloaded', { msg: out.name });
-        }, gcFail); break;
+        }, gcFailFor('pdf', t)); break;
       case 'gcfolder':
         var rf = gcReport(t.dataset.id);
-        gcMake(rf).then(function (out) { gcText('Saving to the job folder…'); return LIVE.savePdf(rf, out.name, out.blob).then(function () { closeLayer(); toast('Saved in the job folder', { msg: out.name }); }); }).catch(gcFail); break;
+        gcMake(rf).then(function (out) { gcText('Saving to the job folder…'); return LIVE.savePdf(rf, out.name, out.blob).then(function () { closeLayer(); toast('Saved in the job folder', { msg: out.name }); }); }).catch(gcFailFor('folder', t)); break;
       case 'gcmail':
         var rm = gcReport(t.dataset.id), jm2 = job(rm.job), to = String((jm2 && jm2.gcEmail) || '').split(/[,;\s]+/).filter(function (x) { return /@/.test(x); });
         if (!jm2) { toast('Approve the job first', { kind: 'error', msg: 'Email to GC needs the job’s GC email. Approve the job request on the Jobs page and add it there.' }); break; }
@@ -1141,7 +1160,7 @@
               '<p style="margin:6px 0 0;font:14px/1.45 var(--in);color:var(--mut)">After you press Send in Outlook, tap below so the app knows the GC has it.</p>' +
               '<div class="acts"><button class="obtn tertiary" data-act="close">Not sent yet</button><button class="obtn primary" data-act="gcsent" data-id="' + rm.id + '">I sent it</button></div></div>');
           });
-        }).catch(gcFail); break;
+        }).catch(gcFailFor('mail', t)); break;
       case 'cancelsend': stopSend = true; if (LIVE.on) LIVE.cancel(); if (document.getElementById('busytxt') && /weather/i.test(document.getElementById('busytxt').textContent)) { closeLayer(); toast('Sending stopped', { kind: 'info', msg: 'Your report is saved here. Tap Send when you’re ready.' }); renderReport(); } break;
       case 'discard':
         openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Throw away report"><div class="toprow"><h2>THROW IT AWAY?</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div><p style="margin:0;font:15px/1.45 var(--in)">The unsent report for ' + esc(shortDate(S().draft.day)) + (S().draft.photos.length ? ' and its ' + mediaCount(S().draft.photos).toLowerCase() : '') + ' will be deleted from this ' + (isWide() ? 'iPad' : 'phone') + '. This can’t be undone.</p><div class="acts"><button class="obtn tertiary" data-act="close">Keep it</button><button class="obtn primary" data-act="dodiscard">Throw it away</button></div></div>');

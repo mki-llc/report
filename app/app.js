@@ -78,7 +78,8 @@
     closeLayer();
     var h = location.hash.replace(/^#\/?/, '') || '', parts = h.split('/');
     var isOffice = parts[0] === 'office';
-    document.body.classList.toggle('foreman', !isOffice);
+    // Upright-only cover is for foremen. Office people (and sign-in) can turn the iPad sideways.
+    document.body.classList.toggle('foreman', !isOffice && !!S().me && parts[0] !== 'signin' && S().role !== 'office');
     window.scrollTo(0, 0);
     var me = S().me;
     if (!isOffice) {

@@ -1,7 +1,7 @@
 /* Preview data. Replaced by SharePoint lists once Microsoft sign-in is connected. */
 (function () {
-  // ?live turns on the real Microsoft connection on this device, ?preview goes back to sample data.
-  var LIVE = (function () { try { var q = location.search; if (/[?&]live\b/.test(q)) localStorage.setItem('mki-mode', 'live'); if (/[?&]preview\b/.test(q)) localStorage.removeItem('mki-mode'); return localStorage.getItem('mki-mode') === 'live'; } catch (e) { return false; } })();
+  // The real Microsoft connection is the default. Sample data only shows on a local test server, or for one browser session opened with ?preview.
+  var LIVE = (function () { try { var q = location.search, local = /^(localhost|127\.0\.0\.1)$/.test(location.hostname); localStorage.removeItem('mki-mode'); if (/[?&]live\b/.test(q)) sessionStorage.setItem('mki-pick', 'live'); if (/[?&]preview\b/.test(q)) sessionStorage.setItem('mki-pick', 'preview'); var pick = sessionStorage.getItem('mki-pick'); if (pick) return pick === 'live'; return !local; } catch (e) { return true; } })();
   var KEY = LIVE ? 'mki-live-v1' : 'mki-preview-v1';
 
   var PEOPLE = [

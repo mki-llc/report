@@ -175,7 +175,6 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 @keyframes up{from{transform:translateY(100%)}to{transform:none}}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 @keyframes blink{50%{opacity:0}}
-.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 24px);transform:translateX(-50%);z-index:60;background:var(--char);color:#fff;border-radius:12px;padding:12px 16px;font:500 14px var(--in);box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:calc(100% - 32px);animation:fade .2s}
 
 /* Short phones (iPhone SE, mini): keep the whole tray, including Done, on screen */
 .tray{overflow-y:auto;overscroll-behavior:contain}
@@ -470,8 +469,6 @@ textarea:focus{border-color:var(--char);box-shadow:0 0 0 1px var(--char)}
 .menu{position:absolute;right:0;top:calc(100% + 4px);z-index:25;background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.14),0 0 0 1px var(--line);padding:6px;min-width:200px}
 .menu button{display:flex;align-items:center;gap:10px;width:100%;padding:11px 12px;border-radius:8px;font:500 15px var(--in);color:var(--ink);text-align:left;white-space:nowrap;min-height:44px}
 .menu button:hover{background:var(--soft)}
-.toast{display:flex;align-items:center;gap:16px}
-.tundo{color:#fff;font:700 14px var(--in);text-decoration:underline;text-underline-offset:3px;padding:6px 4px;flex:none}
 
 /* QA pass 2 */
 .select .v,.jrow b,.h1,.fm .t b,.fm .t span,.sent .sum b,.reqrow b,.blk p,.fact .v{overflow-wrap:anywhere}
@@ -593,3 +590,60 @@ button.dot.ok{cursor:pointer}
 @media (hover:hover){button.dot.ok:hover{box-shadow:0 0 0 2px #067647}}
 @media (max-width:699px){.filters:has(.osearch){flex-wrap:wrap}.filters .osearch{flex:1 1 100%}.remc .r>span{flex-basis:100%!important;margin-left:0!important}}
 td.date-td{white-space:nowrap}
+
+/* ===== KachDan design system components (toast, checkbox, field + validation), Oct 29 ===== */
+:root{--kd-focus:#3373E6;--kd-ctl:#C2C4C8;--kd-hint:#64676D;--kd-text:#2A2B2E;--kd-info:#1551BA}
+/* Toast */
+.toasts{position:fixed;right:24px;bottom:calc(env(safe-area-inset-bottom) + 24px);z-index:35;display:flex;flex-direction:column;gap:12px;align-items:flex-end;pointer-events:none}
+@media (max-width:1023px){.toasts{right:16px;left:16px;align-items:center;bottom:calc(env(safe-area-inset-bottom) + 84px)}}
+.toast{pointer-events:auto;position:relative;display:flex;width:360px;max-width:100%;background:#fff;border:1px solid #DADBDE;border-radius:6px;box-shadow:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1);overflow:hidden;animation:tin .22s cubic-bezier(.2,.8,.2,1) both}
+.toast.out{animation:tout .3s ease-in-out both}
+@keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes tout{from{opacity:1;transform:none}to{opacity:0;transform:translateY(4px)}}
+@media (prefers-reduced-motion:reduce){.toast,.toast.out{animation-duration:.01s}}
+.tstripe{width:4px;flex:none;background:#64676D}
+.t-success .tstripe{background:var(--ok)}.t-info .tstripe{background:var(--kd-info)}.t-warning .tstripe{background:var(--warn)}.t-error .tstripe{background:var(--err)}
+.tbody{flex:1;min-width:0;display:flex;align-items:flex-start;gap:12px;padding:12px 8px 12px 12px}
+.tbody>svg{flex:none;color:var(--kd-text)}
+.t-success .tbody>svg{color:var(--ok)}.t-info .tbody>svg{color:var(--kd-info)}.t-warning .tbody>svg{color:var(--warn)}.t-error .tbody>svg{color:var(--err)}
+.ttext{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.ttext b{font:700 14px/21px var(--in);color:var(--kd-text);overflow-wrap:anywhere}
+.ttext p{margin:0;font:400 14px/21px var(--in);color:var(--kd-hint);overflow-wrap:anywhere}
+.tact{height:32px;font:400 14px/16px var(--in);color:var(--red);padding:0;text-align:left}
+.tact:hover{text-decoration:underline;text-underline-offset:3px}
+.tclose{flex:none;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:var(--kd-text);margin-top:-6px}
+.tclose:hover{background:#F1F1F2}
+.tclose:focus-visible,.tact:focus-visible{outline:2px solid var(--kd-focus);outline-offset:1px}
+/* Checkbox: 20px box, 6px corners, Lucide check. Checked keeps MKI red (Dan's call). */
+input.kd-cb{-webkit-appearance:none;appearance:none;flex:none;width:20px;height:20px;margin:2px;border:1px solid var(--kd-ctl);border-radius:6px;background:#fff center/14px 14px no-repeat;cursor:pointer;transition:background-color .12s,border-color .12s}
+input.kd-cb:checked{background-color:var(--red);border-color:var(--red);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")}
+@media (hover:hover){input.kd-cb:not(:checked):hover{border-color:#8E9196}}
+input.kd-cb:focus-visible{outline:2px solid var(--kd-focus);outline-offset:3px}
+/* Field: label above, 40px control, hint below. States tint label, border and hint together. */
+.modal .fld,.gccard .fld{gap:4px}
+.modal .fld label,.gccard .fld label{font:400 14px/21px var(--in);color:var(--kd-text)}
+.modal .fld .opt,.gccard .fld .opt{font:400 14px/21px var(--in);color:var(--kd-hint);margin-left:6px}
+.modal .fld input,.gccard .fld input,.modal .fld select{height:40px;box-sizing:border-box;width:100%;background:#fff;border:1px solid var(--kd-ctl);border-radius:6px;padding:0 12px;font:400 16px/24px var(--in);color:var(--kd-text);outline:none;box-shadow:none}
+.modal .fld .dd select{padding:0 38px 0 12px!important;border-radius:6px!important}
+.modal .fld input::placeholder,.gccard .fld input::placeholder{color:var(--kd-hint)}
+.modal .fld input:focus,.gccard .fld input:focus,.modal .fld select:focus{border-color:var(--kd-focus);box-shadow:0 0 0 1px var(--kd-focus)}
+.fhint{display:flex;align-items:center;gap:4px;font:400 12px/18px var(--in);color:var(--kd-hint)}
+.fhint svg{flex:none}
+.fld.is-err label{color:var(--err)}.fld.is-err input,.fld.is-err select{border-color:var(--err)!important}.fld.is-err .fhint{color:var(--err)}
+.fld.is-err input:focus,.fld.is-err select:focus{box-shadow:0 0 0 1px var(--err)!important}
+.fld.is-warn label{color:var(--warn)}.fld.is-warn input,.fld.is-warn select{border-color:var(--warn)!important}.fld.is-warn .fhint{color:var(--warn)}
+.gccard .gcgrid{gap:16px}
+/* GC report: sentence case titles, quieter textareas that match the fields */
+.gcinc{font:600 15px/21px var(--in);letter-spacing:0;text-transform:none;color:var(--kd-text);gap:10px}
+.gct{font:600 15px/21px var(--in);letter-spacing:0;text-transform:none;color:var(--kd-text)}
+.gcorig .l{font:600 12px/18px var(--in);letter-spacing:0;color:var(--kd-hint)}
+.gcta{border:1px solid var(--kd-ctl);border-radius:6px;padding:10px 12px;background:#fff}
+.gcta:focus{outline:none;border-color:var(--kd-focus);box-shadow:0 0 0 1px var(--kd-focus)}
+.gchint{font:400 12px/18px var(--in);color:var(--kd-hint)}
+/* Photo picks use the same checkbox look on top of the photo */
+.gcpic{outline:2px solid transparent;outline-offset:0}
+.gcpic.on{outline-color:var(--red)}
+.gcpic .ck{top:8px;right:8px;width:20px;height:20px;border-radius:6px;background:#fff;border:1px solid var(--kd-ctl);box-sizing:border-box}
+.gcpic .ck svg{display:none}
+.gcpic.on .ck{background:var(--red);border-color:var(--red)}.gcpic.on .ck svg{display:block}
+.gcpic:has(input:focus-visible){outline:2px solid var(--kd-focus);outline-offset:2px}

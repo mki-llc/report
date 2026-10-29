@@ -36,13 +36,60 @@
   function pill(t, k, sm) { var ic = k === 'ok' ? 'check' : k === 'err' ? 'alert-circle' : k === 'warn' ? 'alert-triangle' : null; return '<span class="pill ' + k + '">' + (ic ? I(ic, sm ? 13 : 14) : '') + esc(t) + '</span>'; }
   function offs() { return S().offs || (S().offs = []); }
   function isOff(pid, dk) { return offs().some(function (o) { return o.person === pid && o.date === dk; }); }
-  function toast(msg, undo) {
-    var old = document.querySelector('.toast'); if (old) old.remove();
-    var t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status');
-    var sp = document.createElement('span'); sp.textContent = msg; t.appendChild(sp);
-    if (undo) { var b = document.createElement('button'); b.className = 'tundo'; b.textContent = 'Undo'; b.onclick = function () { undo(); t.remove(); }; t.appendChild(b); }
-    document.body.appendChild(t); setTimeout(function () { t.remove(); }, undo ? 6000 : 2600);
+  /* Toast, from Dan's KachDan design system (toast component + usage guideline):
+     a short title, an optional message, at most one action (like Undo) and a close button.
+     Success, info and warning fade out after 7 seconds (paused while the pointer or focus is on it).
+     Errors stay until closed. Stacked bottom right on desktop, bottom center on phones.
+     toast('Saved.')  ·  toast('Saved.', undoFn)  ·  toast(title, { kind: 'error', msg: '...', action: { label, fn } }) */
+  var TOAST_ICON = { success: 'circle-check', info: 'info', warning: 'alert-triangle', error: 'alert-circle', neutral: 'info' };
+  function toastBox() {
+    var b = document.getElementById('toasts');
+    if (!b) { b = document.createElement('div'); b.id = 'toasts'; b.className = 'toasts'; document.body.appendChild(b); }
+    return b;
   }
+  function toast(title, opt) {
+    if (typeof opt === 'function') opt = { action: { label: 'Undo', fn: opt } };
+    else if (typeof opt === 'string') opt = { kind: opt };
+    opt = opt || {};
+    var kind = opt.kind || 'success', box = toastBox();
+    [].forEach.call(box.children, function (o) { if (o.dataset.key === title + (opt.msg || '')) o.remove(); });
+    while (box.children.length >= (window.innerWidth < 700 ? 2 : 3)) box.firstChild.remove();
+    var t = document.createElement('div');
+    t.className = 'toast t-' + kind; t.dataset.key = title + (opt.msg || '');
+    t.setAttribute('role', kind === 'error' || kind === 'warning' ? 'alert' : 'status');
+    t.innerHTML = '<span class="tstripe"></span><div class="tbody">' + I(TOAST_ICON[kind], 20) + '<div class="ttext"><b></b>' + (opt.msg ? '<p></p>' : '') + (opt.action ? '<button class="tact"></button>' : '') + '</div><button class="tclose" aria-label="Close">' + I('x', 16) + '</button></div>';
+    t.querySelector('b').textContent = title;
+    if (opt.msg) t.querySelector('p').textContent = opt.msg;
+    var timer = null, left = 7000, started = 0;
+    function close() { clearTimeout(timer); if (t.classList.contains('out')) return; t.classList.add('out'); setTimeout(function () { t.remove(); }, 300); }
+    function run() { if (kind === 'error') return; started = Date.now(); timer = setTimeout(close, left); }
+    function pause() { if (kind === 'error' || !timer) return; clearTimeout(timer); timer = null; left = Math.max(1500, left - (Date.now() - started)); }
+    if (opt.action) { var ab = t.querySelector('.tact'); ab.textContent = opt.action.label; ab.onclick = function () { close(); opt.action.fn(); }; }
+    t.querySelector('.tclose').onclick = close;
+    t.addEventListener('mouseenter', pause); t.addEventListener('mouseleave', function () { if (!timer) run(); });
+    t.addEventListener('focusin', pause); t.addEventListener('focusout', function () { if (!timer && !t.matches(':hover')) run(); });
+    // Sit above a sticky action bar (GC report) so toasts never cover its buttons.
+    var bar = document.querySelector('.gcbar'), br = bar && bar.getBoundingClientRect();
+    box.style.bottom = br && br.top < window.innerHeight && br.bottom > 0 ? (window.innerHeight - br.top + 12) + 'px' : '';
+    box.appendChild(t); run();
+    return t;
+  }
+  // Field validation, from the KachDan input + field-label + field-hint components: the label, border and
+  // hint all take the state together, and a status hint always pairs its color with an icon.
+  function fieldState(id, theme, msg) {
+    var c = document.getElementById(id); if (!c) return;
+    var f = c.closest('.fld'); if (!f) return;
+    var h = f.querySelector('.fhint');
+    if (!h) { h = document.createElement('div'); h.className = 'fhint'; h.id = id + '-hint'; f.appendChild(h); }
+    if (!('base' in h.dataset)) h.dataset.base = h.textContent;
+    f.classList.remove('is-err', 'is-warn');
+    if (theme) { f.classList.add(theme === 'err' ? 'is-err' : 'is-warn'); h.innerHTML = I(theme === 'err' ? 'alert-circle' : 'alert-triangle', 14) + '<span></span>'; h.querySelector('span').textContent = msg; }
+    else { h.textContent = h.dataset.base; }
+    h.hidden = !h.textContent;
+    c.setAttribute('aria-describedby', h.id);
+    if (theme === 'err') c.setAttribute('aria-invalid', 'true'); else c.removeAttribute('aria-invalid');
+  }
+  function validEmails(v) { var a = String(v || '').split(/[,;\s]+/).filter(Boolean); return { list: a, bad: a.filter(function (x) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); }) }; }
   function go(h) { if (location.hash === h) route(); else location.hash = h; }
   function closeLayer() { $layer.innerHTML = ''; document.body.style.overflow = ''; V = null; }
   var layerHist = false;
@@ -62,7 +109,7 @@
   var LIVE = window.LIVE || { on: false };
   // Saves to SharePoint in the background; if it fails the office sees a message and can try again.
   // Saves to SharePoint in the background. If it fails, the change is put back on screen so nobody thinks it saved.
-  function sync(pr, okMsg, undo) { if (!LIVE.on || !pr) return; pr.then(function () { if (okMsg) toast(okMsg); }, function (e) { console.error(e); if (undo) undo(); toast(e && e.status === 403 ? 'Your account isn’t allowed to change that. Ask Alex to check your access.' : 'Couldn’t save that to SharePoint, so it was put back. Check your connection and try again.'); }); }
+  function sync(pr, okMsg, undo) { if (!LIVE.on || !pr) return; pr.then(function () { if (okMsg) toast(okMsg); }, function (e) { console.error(e); if (undo) undo(); toast('Not saved', { kind: 'error', msg: e && e.status === 403 ? 'Your account isn’t allowed to change that. Ask Alex to check your access.' : 'Couldn’t save that to SharePoint, so it was put back. Check your connection and try again.' }); }); }
   function mmss(sec) { sec = Math.round(sec || 0); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
   function playBadge(p, sm) { return isVid(p) ? '<span class="vbadge' + (sm ? ' sm' : '') + '">' + I('play', sm ? 10 : 12, '#fff') + (sm ? '' : mmss(p.dur)) + '</span>' : ''; }
   function mediaCount(arr) { var v = (arr || []).filter(isVid).length, ph = (arr || []).length - v; return (ph ? ph + (ph === 1 ? ' photo' : ' photos') : '') + (ph && v ? ' · ' : '') + (v ? v + (v === 1 ? ' video' : ' videos') : '') || 'None'; }
@@ -75,7 +122,7 @@
   // started Friday is still there Monday. Empty ones from earlier days start fresh.
   function draftAge(d) { return Math.round((dObj(todayKey()) - dObj(d.day || d.date)) / 864e5); }
   function D() { var s = S(), t = todayKey(); if (!s.draft || (s.draft.date !== t && !(hasContent(s.draft) && draftAge(s.draft) <= 30))) { s.draft = newDraft(); } return fixDraft(s.draft); }
-  var saveT, warned = false; function saveSoon() { clearTimeout(saveT); saveT = setTimeout(function () { if (!DB.save() && !warned) { warned = true; toast('This phone is low on space. Your report is kept while the app is open.'); } }, 300); }
+  var saveT, warned = false; function saveSoon() { clearTimeout(saveT); saveT = setTimeout(function () { if (!DB.save() && !warned) { warned = true; toast('Phone almost full', { kind: 'warning', msg: 'Your report is kept while the app is open.' }); } }, 300); }
 
   /* ---------------- router ---------------- */
   function route() {
@@ -407,7 +454,7 @@
     var ok = DB.save();
     if (!ok) { s.reports.forEach(function (r) { if (r !== rep) r.photoData = []; }); ok = DB.save(); }
     if (!ok) { rep.photoData = []; ok = DB.save(); }
-    if (!ok) { s.reports.shift(); s.draft = d; toast('This phone is out of space, so the report wasn’t sent. Nothing was lost, try again.'); return; }
+    if (!ok) { s.reports.shift(); s.draft = d; toast('Report not sent', { kind: 'error', msg: 'This phone is out of space. Nothing was lost. Free up some space and try again.' }); return; }
     go('#/sent/' + id);
   }
 
@@ -435,7 +482,7 @@
       go('#/sent/' + rep.id);
     }, function (e) {
       sending = false; console.error(e);
-      if (e && e.cancelled) { closeLayer(); toast('Stopped. Your report is saved here. Tap Send when you’re ready.'); renderReport(); return; }
+      if (e && e.cancelled) { closeLayer(); toast('Sending stopped', { kind: 'info', msg: 'Your report is saved here. Tap Send when you’re ready.' }); renderReport(); return; }
       var off = navigator.onLine === false || (e && e.network);
       var done = (d.uploaded || []).length, tot = media.length;
       closeLayer();
@@ -806,7 +853,7 @@
     if (k === 'notes') return '';
     var cur = rv(r).sections[k], orig = GC.original(r)[k].join('\n');
     if (GC.lines(cur.text).join('\n') === orig) return '';
-    return '<div class="gcorig"><div class="l">FOREMAN WROTE</div><p>' + esc(orig || '(nothing)').replace(/\n/g, '<br>') + '</p><button class="u" data-act="gcrevert" data-id="' + r.id + '" data-k="' + k + '">Use the foreman’s words</button></div>';
+    return '<div class="gcorig"><div class="l">Foreman wrote</div><p>' + esc(orig || '(nothing)').replace(/\n/g, '<br>') + '</p><button class="u" data-act="gcrevert" data-id="' + r.id + '" data-k="' + k + '">Use the foreman’s words</button></div>';
   }
   function gcRedraw(id) {
     if (location.hash.indexOf('/gc/' + id) < 0 || $layer.firstChild) return;
@@ -833,7 +880,7 @@
     }
     var secs = GC.SECTIONS.map(function (sx) {
       var cur = v.sections[sx.k], txt = (cur.text || []).join('\n');
-      return '<section class="card gcsec' + (cur.on ? '' : ' off') + '"><div class="gchead"><label class="gcinc"><input type="checkbox" data-gc="on" data-k="' + sx.k + '"' + (cur.on ? ' checked' : '') + '><span>' + esc(sx.t) + '</span></label><span class="mut gcin">' + (cur.on ? 'In the GC report' : 'Not sent to the GC') + '</span></div>' +
+      return '<section class="card gcsec' + (cur.on ? '' : ' off') + '"><div class="gchead"><label class="gcinc"><input type="checkbox" class="kd-cb" data-gc="on" data-k="' + sx.k + '"' + (cur.on ? ' checked' : '') + '><span>' + esc(sx.t) + '</span></label><span class="mut gcin">' + (cur.on ? 'In the GC report' : 'Not sent to the GC') + '</span></div>' +
         '<textarea class="gcta" rows="' + Math.max(2, (cur.text || []).length + 1) + '" data-gc="text" data-k="' + sx.k + '" placeholder="' + (sx.k === 'notes' ? 'Optional note for the GC' : 'One item per line') + '">' + esc(txt) + '</textarea>' +
         (cur.auto && cur.on ? '<p class="gchint">Turned on because the foreman mentions an inspection or test. Turn it off if the GC doesn’t need it.</p>' : sx.hint ? '<p class="gchint">' + esc(sx.hint) + '</p>' : '') +
         '<div class="gcorigw" id="gco-' + sx.k + '">' + gcOrigHTML(r, sx.k) + '</div></section>';
@@ -865,14 +912,21 @@
       '<div class="gcstat" id="gcstat">' + stat + '</div>' +
       '<p class="gcintro">Fix wording, add anything missing and choose what the GC sees. The foreman’s original stays saved as it was, and the PDF shows who reviewed it.</p>' +
       (j ? '<section class="card gccard"><div class="gchead"><span class="gct">General contractor for this job</span></div><div class="gcgrid">' +
-        '<div class="fld"><label for="gc-n">GC company</label><input id="gc-n" data-gcjob="gc" value="' + esc(j.gc || '') + '" autocomplete="off"></div>' +
-        '<div class="fld"><label for="gc-p">GC project number</label><input id="gc-p" data-gcjob="gcProject" value="' + esc(j.gcProject || '') + '" autocomplete="off"></div>' +
-        '<div class="fld wide"><label for="gc-e">GC email<span class="opt">Separate several with commas</span></label><input id="gc-e" type="email" multiple data-gcjob="gcEmail" value="' + esc(gcEmails) + '" autocomplete="off"></div></div></section>' : '<section class="card gccard"><p class="mut" style="margin:0">This report is on a job the office hasn’t approved yet. Approve or merge it on the Jobs page to add the GC details.</p></section>') +
+        '<div class="fld"><label for="gc-n">GC company</label><input id="gc-n" data-gcjob="gc" value="' + esc(j.gc || '') + '" placeholder="e.g. Rodgers Builders" autocomplete="off" aria-describedby="gc-n-hint"><div class="fhint" id="gc-n-hint">Shows at the top of the PDF</div></div>' +
+        '<div class="fld"><label for="gc-p">GC project number</label><input id="gc-p" data-gcjob="gcProject" value="' + esc(j.gcProject || '') + '" placeholder="e.g. 24-118" autocomplete="off" aria-describedby="gc-p-hint"><div class="fhint" id="gc-p-hint">Shows at the top of the PDF</div></div>' +
+        '<div class="fld wide"><label for="gc-e">GC email</label><input id="gc-e" type="email" multiple data-gcjob="gcEmail" value="' + esc(gcEmails) + '" placeholder="name@company.com" autocomplete="off" aria-describedby="gc-e-hint"><div class="fhint" id="gc-e-hint">Needed for Email to GC. Separate several with commas.</div></div></div></section>' : '<section class="card gccard"><p class="mut" style="margin:0">This report is on a job the office hasn’t approved yet. Approve or merge it on the Jobs page to add the GC details.</p></section>') +
       combo + secs +
       '<section class="card gccard" id="gcphotos"><div class="gchead"><span class="gct">Photos for the GC</span>' + (pics.length > 1 ? '<span><button class="u" data-act="gcall" data-id="' + r.id + '" data-v="1">All</button> · <button class="u" data-act="gcall" data-id="' + r.id + '" data-v="0">None</button></span>' : '') + '</div>' + photos + '</section>' +
       '<div class="gcbar"><span id="gcsave" class="mut">' + (v.savedAt ? 'All changes saved' : 'Changes save as you type') + '</span><div class="gcacts">' +
         '<button class="obtn tertiary" data-act="gcpdf" data-id="' + r.id + '">' + I('file-text', 18) + 'Download PDF</button>' +
         (LIVE.on ? '<button class="obtn tertiary" data-act="gcfolder" data-id="' + r.id + '">' + I('folder', 18) + 'Save to job folder</button><button class="obtn primary" data-act="gcmail" data-id="' + r.id + '">Email to GC</button>' : '') + '</div></div>';
+  }
+  // GC company and project number are optional, but the PDF header looks unfinished without them,
+  // so making a PDF flags any that are empty (a warning, it doesn't stop anything).
+  function gcMissingWarn() {
+    [['gc-n', 'Not filled in, so the PDF leaves the GC company blank'], ['gc-p', 'Not filled in, so the PDF leaves the project number blank']].forEach(function (x) {
+      var el = document.getElementById(x[0]); if (el && !el.value.trim()) fieldState(x[0], 'warn', x[1]);
+    });
   }
   function gcText(t) { var el = document.getElementById('busytxt'); if (el) el.textContent = t; else gcBusy(t); }
   function gcReport(id) { return S().reports.filter(function (x) { return x.id === id; })[0]; }
@@ -888,7 +942,7 @@
   // Lines from another foreman's report, labelled with his name, for a combined GC report.
   function otherLines(o, k) { var src = o.review && o.review.sections && o.review.sections[k] ? GC.lines(o.review.sections[k].text) : GC.original(o)[k]; var yes = { delay: o.delay.yes, safety: o.safety.yes, mat: o.mat.yes }; if (k in yes && !yes[k]) return []; return src.map(function (l) { return person(o.person).short + ': ' + l; }); }
   var NONE = { delay: 'No delays reported.', safety: 'No safety or quality issues reported.', mat: 'Nothing needed.' };
-  function gcFail(e) { closeLayer(); console.error(e); toast(e && e.status === 403 ? 'Your account isn’t allowed to do that. Ask Alex to check your access.' : 'That didn’t work: ' + ((e && e.message) || 'check the connection') + '.'); }
+  function gcFail(e) { closeLayer(); console.error(e); toast('That didn’t work', { kind: 'error', msg: e && e.status === 403 ? 'Your account isn’t allowed to do that. Ask Alex to check your access.' : (((e && e.message) || 'Check the connection') + '. Try again.').replace(/^./, function (c) { return c.toUpperCase(); }) }); }
 
   /* ---------------- office: jobs ---------------- */
   function renderJobs() {
@@ -916,7 +970,7 @@
     if (ej) { prefill = ej.name; addr = ej.address; }
     openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="' + (ej ? 'Edit job' : reqId ? 'Approve job request' : 'Add a job') + '"><div class="toprow"><h2>' + (ej ? 'EDIT JOB' : reqId ? 'APPROVE JOB REQUEST' : 'ADD A JOB') + '</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
       '<div class="fld"><label for="aj-n">Job name</label><input id="aj-n" maxlength="80" value="' + esc(prefill || '') + '" autocomplete="off"></div>' +
-      '<div class="fld"><label for="aj-a">Job site address<span class="opt">For the weather on reports</span></label><input id="aj-a" placeholder="Street, city, state" value="' + esc(addr || '') + '" autocomplete="off"></div>' +
+      '<div class="fld"><label for="aj-a">Job site address<span class="opt">Optional</span></label><input id="aj-a" placeholder="Street, city, state" value="' + esc(addr || '') + '" autocomplete="off" aria-describedby="aj-a-hint"><div class="fhint" id="aj-a-hint">Gives reports that town’s weather</div></div>' +
       '<div class="fld"><label for="aj-f">Main foreman<span class="opt">Optional</span></label><label class="dd" style="display:flex"><select id="aj-f" style="width:100%;padding:15px 38px 15px 14px;font-size:16px;border-radius:12px"><option value="">Pick a foreman</option>' + S().people.filter(function (p) { return p.crew || (ej && ej.foreman === p.id); }).map(function (p) { return '<option value="' + p.id + '"' + (ej && ej.foreman === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label></div>' +
       '<div class="fld"><label for="aj-gc">General contractor<span class="opt">Optional</span></label><input id="aj-gc" value="' + esc(ej ? ej.gc || '' : '') + '" autocomplete="off"></div>' +
       '<div class="fld"><label for="aj-gp">GC project number<span class="opt">Optional</span></label><input id="aj-gp" value="' + esc(ej ? ej.gcProject || '' : '') + '" autocomplete="off"></div>' +
@@ -931,7 +985,7 @@
     var r = S().requests.filter(function (x) { return x.id === reqId; })[0];
     openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Merge"><div class="toprow"><h2>MERGE INTO A JOB</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div>' +
       '<p style="margin:0;font:15px/1.45 var(--in)">Reports sent under “' + esc(r.name) + '” will move to the job you pick.</p>' +
-      '<label class="dd" style="display:flex"><select id="mg" style="width:100%;padding:15px 38px 15px 14px;font-size:16px;border-radius:12px">' + jobOpts('Pick a job').map(function (o) { return '<option value="' + esc(o[0]) + '">' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label>' +
+      '<div class="fld"><label for="mg">Job</label><label class="dd" style="display:flex"><select id="mg" style="width:100%">' + jobOpts('Pick a job').map(function (o) { return '<option value="' + esc(o[0]) + '">' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 18) + '</label></div>' +
       '<div class="acts"><button class="obtn tertiary" data-act="close">Cancel</button><button class="obtn primary" data-act="domerge" data-id="' + reqId + '">Merge</button></div></div>');
   }
 
@@ -978,11 +1032,11 @@
       case 'offundo':
         var uo = offs().filter(function (o) { return o.person === S().me && o.date === t.dataset.day; });
         S().offs = offs().filter(function (o) { return uo.indexOf(o) < 0; }); DB.save();
-        if (LIVE.on) uo.forEach(function (o) { if (o.itemId) LIVE.unmarkOff(o).catch(function () { toast('Couldn’t undo. Check your signal and try again.'); offs().push(o); DB.save(); }); });
-        location.replace('#/'); toast('Undone. You’re not marked off.'); break;
+        if (LIVE.on) uo.forEach(function (o) { if (o.itemId) LIVE.unmarkOff(o).catch(function () { toast('Couldn’t undo', { kind: 'error', msg: 'Check your signal and try again.' }); offs().push(o); DB.save(); }); });
+        location.replace('#/'); toast('You’re not marked off'); break;
       case 'signin': if (LIVE.on) { LIVE.signIn(); break; } S().me = 'aharbin'; DB.save(); go('#/'); break;
       case 'folder': var fr = S().reports.filter(function (x) { return x.id === t.dataset.id; })[0]; if (fr && fr.mediaUrl) window.open(fr.mediaUrl, '_blank', 'noopener'); break;
-      case 'resetdemo': DB.reset(); toast('Sample data reset.'); go('#/signin'); break;
+      case 'resetdemo': DB.reset(); toast('Sample data reset', 'info'); go('#/signin'); break;
       case 'signout': if (S().draft && hasContent(S().draft) && !t.dataset.sure) { openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Sign out"><div class="toprow"><h2>SIGN OUT?</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div><p style="margin:0;font:15px/1.45 var(--in)">There’s an unsent report on this ' + (isWide() ? 'iPad' : 'phone') + '. Signing out deletes it.</p><div class="acts"><button class="obtn tertiary" data-act="close">Stay signed in</button><button class="obtn primary" data-act="signout" data-sure="1">Sign out</button></div></div>'); break; }
         closeLayer(); if (LIVE.on) { LIVE.signOut(); break; } S().me = null; DB.save(); go('#/signin'); break;
       case 'done': go('#/'); break;
@@ -1007,7 +1061,7 @@
         if (key === 'clear') TT.buf = ''; else if (key === 'del') TT.buf = TT.buf.slice(0, -1); else if (TT.buf.length < 4) { if (!(TT.buf === '' && key === '0' && false)) TT.buf += key; }
         drawTime(); break;
       case 'tdone': var p3 = parseT(TT.buf, TT.ap); if (!p3.ok) return; d = D(); d[TT.k] = p3.hm; if (d.errors && d.start && d.finish) delete d.errors.hours; saveSoon(); var nextK = TT.k === 'start' && !d.finish ? 'finish' : null; closeLayer(); refresh('q-hours'); if (nextK) openTime(nextK); break;
-      case 'same': d = D(); var rec = (S().recent[S().me] || {}).hours; if (!rec) { var last = S().reports.filter(function (r) { return r.person === S().me; })[0]; rec = last ? { start: last.start, finish: last.finish } : { start: '07:00', finish: '15:30' }; } d.start = rec.start; d.finish = rec.finish; if (d.errors) delete d.errors.hours; saveSoon(); refresh('q-hours'); toast('Filled in ' + fmt12(rec.start) + ' to ' + fmt12(rec.finish)); break;
+      case 'same': d = D(); var rec = (S().recent[S().me] || {}).hours; if (!rec) { var last = S().reports.filter(function (r) { return r.person === S().me; })[0]; rec = last ? { start: last.start, finish: last.finish } : { start: '07:00', finish: '15:30' }; } d.start = rec.start; d.finish = rec.finish; if (d.errors) delete d.errors.hours; saveSoon(); refresh('q-hours'); toast('Hours filled in', { kind: 'info', msg: fmt12(rec.start) + ' to ' + fmt12(rec.finish) }); break;
       case 'crew': d = D(); d.crew = Math.max(0, Math.min(99, d.crew + (+t.dataset.d))); var n = document.getElementById('crewn'); n.textContent = d.crew; n.classList.toggle('zero', !d.crew); if (d.errors && d.crew && d.errors.crew) { delete d.errors.crew; refresh('q-crew'); } saveSoon(); break;
       case 'yn': if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); d = D(); d[t.dataset.k].yes = t.dataset.v === '1'; if (d.errors) delete d.errors[t.dataset.k]; saveSoon(); refresh('q-' + t.dataset.k); break;
       case 'rmphoto': d = D(); d.uploaded = []; var gone = d.photos.splice(+t.dataset.i, 1)[0]; if (LIVE.on && gone && gone.key) LIVE.blobs.del(gone.key).catch(function () {}); saveSoon(); refresh('q-photos'); break;
@@ -1023,7 +1077,7 @@
         });
         lv.combine = (lv.combine || []).concat([orp.id]); ov.combinedInto = lr.id;
         gcSave(lr, true).catch(function () {}); if (LIVE.on && LIVE.hasReviewColumn()) sync(LIVE.saveReview(orp)); DB.save();
-        var yc = window.scrollY; route(); window.scrollTo(0, yc); toast(person(orp.person).short + '’s report is combined into this one.'); break;
+        var yc = window.scrollY; route(); window.scrollTo(0, yc); toast('Reports combined', { msg: person(orp.person).short + '’s report is now part of this one.' }); break;
       case 'gcuncombine':
         var lr2 = gcReport(t.dataset.id), or2 = gcReport(t.dataset.o), lv2 = rv(lr2), ov2 = rv(or2), tag = person(or2.person).short + ': ';
         ['work', 'delay', 'safety', 'mat', 'plan'].forEach(function (k) {
@@ -1032,33 +1086,36 @@
         });
         lv2.combine = (lv2.combine || []).filter(function (x) { return x !== or2.id; }); ov2.combinedInto = null;
         gcSave(lr2, true).catch(function () {}); if (LIVE.on && LIVE.hasReviewColumn()) sync(LIVE.saveReview(or2)); DB.save();
-        var yu = window.scrollY; route(); window.scrollTo(0, yu); toast('Separated again.'); break;
+        var yu = window.scrollY; route(); window.scrollTo(0, yu); toast('Reports separated'); break;
       case 'gcsent':
         var rs = gcReport(t.dataset.id), vs = rv(rs), dft = (vs.drafts || []).slice(-1)[0];
         if (dft) { vs.sent = (vs.sent || []).concat([{ rev: dft.rev, at: Date.now(), hash: dft.hash, by: S().me, to: dft.to, file: dft.file }]); vs.drafts = []; }
-        gcSave(rs, true).catch(function () {}); closeLayer(); route(); toast('Marked as sent to the GC.'); break;
+        gcSave(rs, true).catch(function () {}); closeLayer(); route(); toast('Marked as sent to the GC'); break;
       case 'recmake':
         var rr9 = gcReport(t.dataset.id); gcBusy('Making the as-sent PDF…');
         loadAllMedia([rr9]).then(function () { return recordPdf(rr9, rr9.photoData || []); }).then(function (out) {
           gcText('Saving it to the job folder…');
           return LIVE.savePdf(rr9, out.name, out.blob).then(function () { return LIVE.markRecord(rr9, out.name); });
-        }).then(function () { closeLayer(); route(); toast('The as-sent PDF is now in the job folder.'); }, gcFail); break;
+        }).then(function () { closeLayer(); route(); toast('Saved in the job folder', { msg: 'The as-sent PDF is with the job’s photos.' }); }, gcFail); break;
       case 'gcrevert': var rr0 = gcReport(t.dataset.id); rv(rr0).sections[t.dataset.k].text = GC.original(rr0)[t.dataset.k].slice(); gcSave(rr0); var yr = window.scrollY; route(); window.scrollTo(0, yr); break;
       case 'gcall': var ra = gcReport(t.dataset.id); rv(ra).photos = t.dataset.v === '1' ? null : []; rv(ra).otherPhotos = {}; combined(ra).forEach(function (o) { rv(ra).otherPhotos[o.id] = t.dataset.v === '1' ? null : []; }); gcSave(ra); var ya = window.scrollY; route(); window.scrollTo(0, ya); break;
       case 'gcpdf':
+        gcMissingWarn();
         gcMake(gcReport(t.dataset.id)).then(function (out) {
           closeLayer(); var u = URL.createObjectURL(out.blob), a = document.createElement('a'); a.href = u; a.download = out.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
-          var yd = window.scrollY; route(); window.scrollTo(0, yd); toast('Downloaded “' + out.name + '”.');
+          var yd = window.scrollY; route(); window.scrollTo(0, yd); gcMissingWarn(); toast('PDF downloaded', { msg: out.name });
         }, gcFail); break;
       case 'gcfolder':
         var rf = gcReport(t.dataset.id);
-        gcMake(rf).then(function (out) { gcText('Saving to the job folder…'); return LIVE.savePdf(rf, out.name, out.blob).then(function () { closeLayer(); toast('Saved to the job folder as “' + out.name + '”.'); }); }).catch(gcFail); break;
+        gcMake(rf).then(function (out) { gcText('Saving to the job folder…'); return LIVE.savePdf(rf, out.name, out.blob).then(function () { closeLayer(); toast('Saved in the job folder', { msg: out.name }); }); }).catch(gcFail); break;
       case 'gcmail':
         var rm = gcReport(t.dataset.id), jm2 = job(rm.job), to = String((jm2 && jm2.gcEmail) || '').split(/[,;\s]+/).filter(function (x) { return /@/.test(x); });
-        if (!to.length) { var ge = document.getElementById('gc-e'); if (ge) { ge.focus(); ge.scrollIntoView({ block: 'center' }); } toast('Add the GC’s email first.'); break; }
+        var ve = validEmails(jm2 && jm2.gcEmail), ge = document.getElementById('gc-e');
+        gcMissingWarn();
+        if (!ve.list.length || ve.bad.length) { fieldState('gc-e', 'err', !ve.list.length ? 'Add the GC’s email to send the report' : 'Check this address: ' + ve.bad[0] + '. Example: name@company.com'); if (ge) { ge.scrollIntoView({ block: 'center' }); ge.focus(); } break; }
         gcMake(rm).then(function (out) {
           // Many company mail systems refuse attachments over about 10 MB.
-          if (out.blob.size > 9.5 * 1048576) { closeLayer(); toast('The PDF is ' + mb(out.blob.size) + ', too big for many email systems. Untick some photos and try again.'); return; }
+          if (out.blob.size > 9.5 * 1048576) { closeLayer(); toast('PDF too big to email', { kind: 'error', msg: 'It’s ' + mb(out.blob.size) + '. Many email systems refuse that. Untick some photos and try again.' }); return; }
           gcText('Saving a copy to the job folder…');
           return LIVE.savePdf(rm, out.name, out.blob).then(function () {
             gcText('Making the email in Outlook…');
@@ -1075,7 +1132,7 @@
               '<div class="acts"><button class="obtn tertiary" data-act="close">Not sent yet</button><button class="obtn primary" data-act="gcsent" data-id="' + rm.id + '">I sent it</button></div></div>');
           });
         }).catch(gcFail); break;
-      case 'cancelsend': stopSend = true; if (LIVE.on) LIVE.cancel(); if (document.getElementById('busytxt') && /weather/i.test(document.getElementById('busytxt').textContent)) { closeLayer(); toast('Stopped. Your report is saved here. Tap Send when you’re ready.'); renderReport(); } break;
+      case 'cancelsend': stopSend = true; if (LIVE.on) LIVE.cancel(); if (document.getElementById('busytxt') && /weather/i.test(document.getElementById('busytxt').textContent)) { closeLayer(); toast('Sending stopped', { kind: 'info', msg: 'Your report is saved here. Tap Send when you’re ready.' }); renderReport(); } break;
       case 'discard':
         openLayer('<div class="dim" data-act="close"></div><div class="modal" role="dialog" aria-label="Throw away report"><div class="toprow"><h2>THROW IT AWAY?</h2><button data-act="close" aria-label="Close">' + I('x', 22) + '</button></div><p style="margin:0;font:15px/1.45 var(--in)">The unsent report for ' + esc(shortDate(S().draft.day)) + (S().draft.photos.length ? ' and its ' + mediaCount(S().draft.photos).toLowerCase() : '') + ' will be deleted from this ' + (isWide() ? 'iPad' : 'phone') + '. This can’t be undone.</p><div class="acts"><button class="obtn tertiary" data-act="close">Keep it</button><button class="obtn primary" data-act="dodiscard">Throw it away</button></div></div>');
         break;
@@ -1090,29 +1147,29 @@
       case 'addjob': openAddJob(); break;
       case 'savejob':
         var nm2 = document.getElementById('aj-n'), nf = document.getElementById('aj-j'), num = nf.value.trim() || nextNum();
-        nm2.classList.remove('err'); nf.classList.remove('err'); var ferr = document.getElementById('aj-err'); if (ferr) ferr.remove();
-        var bad = function (el, msg) { el.classList.add('err'); el.focus(); el.insertAdjacentHTML('afterend', '<div class="emsg" id="aj-err">' + I('alert-circle', 16) + esc(msg) + '</div>'); };
+        fieldState('aj-n'); fieldState('aj-j');
+        var bad = function (el, msg) { fieldState(el.id, 'err', msg); el.focus(); };
         if (!nm2.value.trim()) { bad(nm2, 'Add the job name'); return; }
         if (!/^[A-Za-z0-9-]{1,20}$/.test(num)) { bad(nf, 'Use numbers and dashes only, like 26-3009'); return; }
         if (job(num)) { bad(nf, 'Job ' + num + ' already exists'); return; }
         var nj = { num: num, name: nm2.value.trim().slice(0, 80), active: true, foreman: document.getElementById('aj-f').value || null, address: document.getElementById('aj-a').value.trim().slice(0, 200), gc: document.getElementById('aj-gc').value.trim(), gcProject: document.getElementById('aj-gp').value.trim(), gcEmail: document.getElementById('aj-ge').value.trim() }, moved = [];
         S().jobs.push(nj);
         if (t.dataset.req) { var rqo = S().requests.filter(function (x) { return x.id === t.dataset.req; })[0]; if (rqo) S().reports.forEach(function (r) { if (r.jobName === rqo.name && r.job.indexOf('new:') === 0) { r.job = num; r.jobName = null; moved.push(r); } }); S().requests = S().requests.filter(function (x) { return x.id !== t.dataset.req; }); }
-        DB.save(); closeLayer(); route(); if (LIVE.on) sync(LIVE.addJob(nj).then(function () { return LIVE.patchReports(moved); }), 'Job added. Foremen see it next time they open the app.'); else toast('Job added. Foremen see it right away.'); break;
+        DB.save(); closeLayer(); route(); if (LIVE.on) sync(LIVE.addJob(nj).then(function () { return LIVE.patchReports(moved); }), 'Job added'); else toast('Job added'); break;
       case 'approve': var rr = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; openAddJob(rr.name, rr.id, rr.note || ''); break;
       case 'editjob': var om = document.querySelector('.menu'); if (om) om.remove(); openAddJob(null, null, null, t.dataset.num); break;
       case 'saveedit':
-        var ej2 = job(t.dataset.num), en = document.getElementById('aj-n'); var eerr = document.getElementById('aj-err'); if (eerr) eerr.remove(); en.classList.remove('err');
-        if (!en.value.trim()) { en.classList.add('err'); en.focus(); en.insertAdjacentHTML('afterend', '<div class="emsg" id="aj-err">' + I('alert-circle', 16) + 'Add the job name</div>'); return; }
+        var ej2 = job(t.dataset.num), en = document.getElementById('aj-n'); fieldState('aj-n');
+        if (!en.value.trim()) { fieldState('aj-n', 'err', 'Add the job name'); en.focus(); return; }
         var before = { name: ej2.name, address: ej2.address, foreman: ej2.foreman, gc: ej2.gc, gcProject: ej2.gcProject, gcEmail: ej2.gcEmail };
         ej2.name = en.value.trim().slice(0, 80); ej2.address = document.getElementById('aj-a').value.trim().slice(0, 200); ej2.foreman = document.getElementById('aj-f').value || null; ej2.gc = document.getElementById('aj-gc').value.trim(); ej2.gcProject = document.getElementById('aj-gp').value.trim(); ej2.gcEmail = document.getElementById('aj-ge').value.trim();
         DB.save(); closeLayer(); route();
-        if (LIVE.on) sync(LIVE.updateJob(ej2), 'Job saved.', function () { for (var bk in before) ej2[bk] = before[bk]; DB.save(); route(); }); else toast('Job saved.');
+        if (LIVE.on) sync(LIVE.updateJob(ej2), 'Job saved', function () { for (var bk in before) ej2[bk] = before[bk]; DB.save(); route(); }); else toast('Job saved');
         break;
       case 'merge': openMerge(t.dataset.id); break;
-      case 'domerge': var mgs = document.getElementById('mg'), to = mgs.value; if (!to) { mgs.focus(); toast('Pick the job to merge into.'); return; } var rq2 = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; var moved2 = []; S().reports.forEach(function (r) { if (r.jobName === rq2.name && r.job.indexOf('new:') === 0) { r.job = to; r.jobName = null; moved2.push(r); } }); S().requests = S().requests.filter(function (x) { return x.id !== rq2.id; }); DB.save(); sync(LIVE.on && LIVE.patchReports(moved2)); closeLayer(); route(); toast('Merged into ' + job(to).name + '.'); break;
+      case 'domerge': var mgs = document.getElementById('mg'), to = mgs.value; if (!to) { fieldState('mg', 'err', 'Pick the job to merge into'); mgs.focus(); return; } var rq2 = S().requests.filter(function (x) { return x.id === t.dataset.id; })[0]; var moved2 = []; S().reports.forEach(function (r) { if (r.jobName === rq2.name && r.job.indexOf('new:') === 0) { r.job = to; r.jobName = null; moved2.push(r); } }); S().requests = S().requests.filter(function (x) { return x.id !== rq2.id; }); DB.save(); sync(LIVE.on && LIVE.patchReports(moved2)); closeLayer(); route(); toast('Merged into ' + job(to).name + '.'); break;
       case 'jobmenu': var openM = document.querySelector('.menu'); var same = openM && openM.dataset.num === t.dataset.num; if (openM) openM.remove(); [].forEach.call(document.querySelectorAll('tr.mopen'), function (x) { x.classList.remove('mopen'); }); if (same) break; var jrow = t.closest('tr'); if (jrow) jrow.classList.add('mopen'); var jm = job(t.dataset.num); var mn = document.createElement('div'); mn.className = 'menu'; mn.setAttribute('role', 'menu'); mn.dataset.num = jm.num; mn.innerHTML = '<button role="menuitem" data-act="editjob" data-num="' + esc(jm.num) + '">' + I('file-text', 16) + 'Edit job</button><button role="menuitem" data-act="jobstate" data-num="' + esc(jm.num) + '">' + I(jm.active ? 'check' : 'arrow-right', 16) + (jm.active ? 'Mark job finished' : 'Reopen job') + '</button>'; t.parentNode.appendChild(mn); break;
-      case 'jobstate': var jj = job(t.dataset.num); jj.active = !jj.active; DB.save(); route(); sync(LIVE.on && LIVE.updateJob(jj)); toast(jj.name + (jj.active ? ' is active again.' : ' marked finished.'), function () { jj.active = !jj.active; DB.save(); route(); sync(LIVE.on && LIVE.updateJob(jj)); }); break;
+      case 'jobstate': var jj = job(t.dataset.num); jj.active = !jj.active; DB.save(); route(); sync(LIVE.on && LIVE.updateJob(jj)); toast(jj.active ? 'Job reopened' : 'Job marked finished', { msg: jj.name, action: { label: 'Undo', fn: function () { jj.active = !jj.active; DB.save(); route(); sync(LIVE.on && LIVE.updateJob(jj)); } } }); break;
       case 'rem': var pr = person(t.dataset.id); pr.reminder = !pr.reminder; DB.save(); route(); sync(LIVE.on && LIVE.savePerson(pr)); break;
     }
   });
@@ -1140,6 +1197,8 @@
       if (t.dataset.o) v.otherPhotos[t.dataset.o] = cur.length === all.length ? null : cur; else v.photos = cur.length === all.length ? null : cur; t.closest('.gcpic').classList.toggle('on', t.checked); gcSave(r); var st2 = document.getElementById('gcstat'); if (st2) st2.innerHTML = gcStatHTML(r); return;
     }
     if (t.dataset.gcjob) {
+      if (t.dataset.gcjob === 'gcEmail') { var vb = validEmails(t.value).bad; fieldState(t.id, vb.length ? 'err' : '', vb.length ? 'Check this address: ' + vb[0] + '. Example: name@company.com' : ''); }
+      else if (t.value.trim()) fieldState(t.id);
       var j = job(r.job); if (!j) return; var before = j[t.dataset.gcjob];
       j[t.dataset.gcjob] = t.value.trim(); DB.save();
       if (LIVE.on) sync(LIVE.updateJob(j), null, function () { j[t.dataset.gcjob] = before; DB.save(); var y2 = window.scrollY; route(); window.scrollTo(0, y2); });
@@ -1227,10 +1286,43 @@
       }); });
     });
     var times = list.map(exifTime);
-    Promise.all([Promise.all(jobs), Promise.all(times)]).then(function (both) { var urls = both[0]; urls.forEach(function (u, i) { if (u && typeof u === 'object' && both[1][i]) u.taken = both[1][i]; }); urls.forEach(function (u) { if (u) d.photos.push(u); }); d.uploaded = []; saveSoon(); refresh('q-photos'); if (msgs.length) toast(msgs[0]); });
+    Promise.all([Promise.all(jobs), Promise.all(times)]).then(function (both) { var urls = both[0]; urls.forEach(function (u, i) { if (u && typeof u === 'object' && both[1][i]) u.taken = both[1][i]; }); urls.forEach(function (u) { if (u) d.photos.push(u); }); d.uploaded = []; saveSoon(); refresh('q-photos'); if (msgs.length) toast(msgs.length > 1 ? 'Some items weren’t added' : 'Not added', { kind: 'warning', msg: msgs[0] }); });
   }
 
 
-  window.APP = { route: route, toast: toast, go: go };
+  /* ---------------- updates ----------------
+     A home-screen app never reloads itself, so it checks version.json when it opens, when it comes back
+     to the front, and when you move between screens. A new version loads at a safe moment: never while a
+     report is open or sending, while typing, or with a tray open (the draft is saved on the device anyway). */
+  var updV = null, updAt = 0;
+  function safeToUpdate() {
+    var a = document.activeElement;
+    return !sending && !$layer.firstChild && !/^#\/report/.test(location.hash) && !(a && /INPUT|TEXTAREA|SELECT/.test(a.tagName));
+  }
+  function applyUpdate() {
+    if (!updV || !safeToUpdate()) return false;
+    // A new address skips the browser's copy of the old page.
+    location.replace(location.pathname + '?v=' + encodeURIComponent(updV) + location.hash);
+    return true;
+  }
+  function checkUpdate(force) {
+    if (applyUpdate()) return;
+    if (!force && Date.now() - updAt < 60000) return;
+    updAt = Date.now();
+    if (!window.fetch || !window.APP_V || /localhost|127\.0\.0\.1/.test(location.hostname)) return;
+    fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (j && j.v && String(j.v) !== String(window.APP_V)) { updV = String(j.v); applyUpdate(); }
+    }).catch(function () {});
+  }
+  window.addEventListener('hashchange', function () { checkUpdate(false); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) checkUpdate(true); });
+  window.addEventListener('pageshow', function (e) { if (e.persisted) checkUpdate(true); });
+  setTimeout(function () { checkUpdate(true); }, 3000);
+  setInterval(function () { if (!document.hidden) checkUpdate(true); }, 15 * 60000);
+
+  // Typing in a field that shows an error clears it; the check runs again on the next save or send.
+  document.addEventListener('input', function (ev) { var f = ev.target.closest && ev.target.closest('.fld.is-err,.fld.is-warn'); if (f && ev.target.id) fieldState(ev.target.id); });
+
+  window.APP = { route: route, toast: toast, go: go, checkUpdate: checkUpdate };
   if (LIVE.on) { document.body.classList.add('live'); LIVE.start(); } else route();
 })();

@@ -298,7 +298,7 @@
       var known = /^(office|report|sent|off)/.test(h);
       // Coming back from a Microsoft sign-in that interrupted something: go back to that screen.
       var back = null; try { back = sessionStorage.getItem('mki-return'); sessionStorage.removeItem('mki-return'); } catch (x) {}
-      if (back && /^#\/(office|report|off)/.test(back)) { h = back.replace(/^#\/?/, ''); known = true; location.hash = back; if (/^#\/report/.test(back)) setTimeout(function () { window.APP.toast('You’re signed in again. Tap Send to finish your report.'); }, 600); }
+      if (back && /^#\/(office|report|off)/.test(back)) { h = back.replace(/^#\/?/, ''); known = true; location.hash = back; if (/^#\/report/.test(back)) setTimeout(function () { window.APP.toast('Signed in again', { kind: 'info', msg: 'Tap Send to finish your report.' }); }, 600); }
       if (s.role === 'office' && !known) location.hash = '#/office';
       else if (!known || (s.role !== 'office' && /^office/.test(h))) location.hash = '#/';
       window.APP.route();
@@ -346,7 +346,7 @@
       var a = document.activeElement, typing = a && /INPUT|TEXTAREA|SELECT/.test(a.tagName);
       var layerOpen = !!document.getElementById('layer').firstChild;
       if (/^#\/office/.test(location.hash) && !typing && !layerOpen) { var y = window.scrollY; window.APP.route(); window.scrollTo(0, y); }
-      if (added.length) window.APP.toast(added.length === 1 ? 'New report from ' + (added[0].personName || 'a foreman') + '.' : added.length + ' new reports.');
+      if (added.length) window.APP.toast(added.length === 1 ? 'New report' : added.length + ' new reports', { kind: 'info', msg: added.length === 1 ? 'From ' + (added[0].personName || 'a foreman') + '.' : '' });
     }).catch(function (e) { console.warn('refresh', e); }).then(function () { refreshing = false; });
   }
   LIVE.refresh = refresh;
@@ -542,8 +542,11 @@
   // A report photo as a blob for the PDF (office side).
   LIVE.photoBlob = function (item) {
     if (!item || !item.id) return Promise.resolve(item && (item.src || item.thumb) || null);
-    return getDrive().then(function () { return api('GET', '/drives/' + drive.id + '/items/' + item.id + '?$select=id,@microsoft.graph.downloadUrl'); }).then(function (f) {
-      return timed(f['@microsoft.graph.downloadUrl'], {}, 60000).then(function (r) { if (!r.ok) throw new Error('photo ' + r.status); return r.blob(); });
+    // Ask for the whole item: Graph leaves the short-lived download link out when $select is used.
+    return getDrive().then(function () { return api('GET', '/drives/' + drive.id + '/items/' + item.id); }).then(function (f) {
+      var url = f['@microsoft.graph.downloadUrl'];
+      if (!url) throw new Error('No download link for ' + (item.name || 'the photo'));
+      return timed(url, {}, 60000).then(function (r) { if (!r.ok) throw new Error('photo ' + r.status); return r.blob(); });
     });
   };
   LIVE.patchReports = function (list) {

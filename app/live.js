@@ -205,6 +205,9 @@
   function dirToken() {
     return pca.acquireTokenSilent({ scopes: ['User.Read.All'], account: account }).then(function (r) { return r.accessToken; });
   }
+  // Plain foremen get the daily reminder. Someone who also has an office title (like "Owner / Foreman")
+  // shows on the Foremen page but starts with the reminder off; the office can switch it on.
+  function dailyByDefault(t) { return /foreman/i.test(t || '') && !OFFICE_TITLES.test(t || ''); }
   function syncDirectory() {
     return dirToken().then(function (t) {
       var out = [];
@@ -222,13 +225,13 @@
       Object.keys(field).forEach(function (email) {
         var u = field[email], p = s.people.filter(function (x) { return x.id === email; })[0];
         if (!p) {
-          p = mkPerson(email, u.displayName, { role: u.jobTitle, reminder: /foreman/i.test(u.jobTitle), crew: true });
+          p = mkPerson(email, u.displayName, { role: u.jobTitle, reminder: dailyByDefault(u.jobTitle), crew: true });
           s.people.push(p);
           LIVE.savePerson(p).catch(function (e) { console.warn('save person', e); });
         } else {
           var nm = u.displayName || p.name;
           if (nm !== p.name || u.jobTitle !== p.role) {
-            if (!p.itemId) p.reminder = /foreman/i.test(u.jobTitle);
+            if (!p.itemId) p.reminder = dailyByDefault(u.jobTitle);
             p.name = nm; p.short = shortName(nm); p.first = nm.split(/\s+/)[0]; p.ini = initials(nm); p.role = u.jobTitle; p.extra = false;
             LIVE.savePerson(p).catch(function (e) { console.warn('save person', e); });
           }

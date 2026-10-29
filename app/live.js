@@ -313,8 +313,16 @@
     document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
     window.addEventListener('focus', function () { refresh(); });
   }
+  // New or removed employees in Microsoft 365 show up on the Foremen page within about 5 minutes,
+  // without anyone reloading the app.
+  var dirAt = Date.now();
+  function quietRedraw() {
+    var a = document.activeElement, typing = a && /INPUT|TEXTAREA|SELECT/.test(a.tagName);
+    if (/^#\/office/.test(location.hash) && !typing && !document.getElementById('layer').firstChild) { var y = window.scrollY; window.APP.route(); window.scrollTo(0, y); }
+  }
   function refresh() {
     if (refreshing || !LIVE.ready) return;
+    if (Date.now() - dirAt > 300000) { dirAt = Date.now(); syncDirectory().then(function () { DB.save(); quietRedraw(); }); }
     refreshing = true;
     var sel = '/items?$expand=fields&$top=500';
     Promise.all([getAll(listPath(L.reports) + sel), getAll(listPath(L.jobs) + sel)]).then(function (r) {

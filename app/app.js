@@ -47,13 +47,7 @@
     if (!b) { b = document.createElement('div'); b.id = 'toasts'; b.className = 'toasts'; document.body.appendChild(b); }
     return b;
   }
-  // Sit above a sticky action bar (GC report) so toasts never cover its buttons, even as the bar moves on scroll.
-  function placeToasts() {
-    var box = document.getElementById('toasts'); if (!box || !box.firstChild) return;
-    var bar = document.querySelector('.gcbar'), br = bar && bar.getBoundingClientRect();
-    box.style.bottom = br && br.top < window.innerHeight && br.bottom > 0 ? (window.innerHeight - br.top + 12) + 'px' : '';
-  }
-  window.addEventListener('scroll', placeToasts, { passive: true }); window.addEventListener('resize', placeToasts);
+  function placeToasts() {} // Toasts sit at the top (KachDan Toast v1.1), clear of the bottom action bars.
   function toast(title, opt) {
     if (typeof opt === 'function') opt = { action: { label: 'Undo', fn: opt } };
     else if (typeof opt === 'string') opt = { kind: opt };

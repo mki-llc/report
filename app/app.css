@@ -594,12 +594,14 @@ td.date-td{white-space:nowrap}
 /* ===== KachDan design system components (toast, checkbox, field + validation), Oct 29 ===== */
 :root{--kd-focus:#3373E6;--kd-ctl:#C2C4C8;--kd-hint:#64676D;--kd-text:#2A2B2E;--kd-info:#1551BA}
 /* Toast */
-.toasts{position:fixed;right:24px;bottom:calc(env(safe-area-inset-bottom) + 24px);z-index:35;display:flex;flex-direction:column;gap:12px;align-items:flex-end;pointer-events:none}
-@media (max-width:1023px){.toasts{right:16px;left:16px;align-items:center;bottom:calc(env(safe-area-inset-bottom) + 84px)}}
+/* KachDan Toast v1.1: top only. Top right on desktop, top center on phones and iPads; newest on top, stacking downward. */
+.toasts{position:fixed;right:24px;top:calc(env(safe-area-inset-top) + 24px);z-index:35;display:flex;flex-direction:column-reverse;justify-content:flex-end;gap:12px;align-items:flex-end;pointer-events:none}
+@media (max-width:1023px){.toasts{right:16px;left:16px;align-items:center;top:calc(env(safe-area-inset-top) + 16px)}}
+body:has(.pv) .toasts{top:calc(env(safe-area-inset-top) + 56px)}
 .toast{pointer-events:auto;position:relative;display:flex;width:360px;max-width:100%;background:#fff;border:1px solid #DADBDE;border-radius:6px;box-shadow:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1);overflow:hidden;animation:tin .22s cubic-bezier(.2,.8,.2,1) both}
 .toast.out{animation:tout .3s ease-in-out both}
-@keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-@keyframes tout{from{opacity:1;transform:none}to{opacity:0;transform:translateY(4px)}}
+@keyframes tin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+@keyframes tout{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-4px)}}
 @media (prefers-reduced-motion:reduce){.toast,.toast.out{animation-duration:.01s}}
 .tstripe{width:4px;flex:none;background:#64676D}
 .t-success .tstripe{background:var(--ok)}.t-info .tstripe{background:var(--kd-info)}.t-warning .tstripe{background:var(--warn)}.t-error .tstripe{background:var(--err)}

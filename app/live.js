@@ -101,7 +101,11 @@
     });
   }
   var stopAsked = false;
-  LIVE.cancel = function () { stopAsked = true; inflight.slice().forEach(function (c) { c.cancelledByUser = true; c.abort(); }); };
+  var stopWaiters = [];
+  LIVE.cancel = function () {
+    stopAsked = true; inflight.slice().forEach(function (c) { c.cancelledByUser = true; c.abort(); });
+    var w = stopWaiters; stopWaiters = []; w.forEach(function (rej) { var e = new Error('Stopped'); e.cancelled = true; rej(e); });
+  };
   // Between steps of a send: if Stop was pressed, end here.
   function stopCheck(v) { if (stopAsked) { var e = new Error('Stopped'); e.cancelled = true; throw e; } return v; }
   function send(url, opts, tries) {
@@ -311,11 +315,15 @@
       var s = DB.state, old = {}, fresh = r[0].map(toRep).filter(function (x) { return x.date; });
       s.reports.forEach(function (x) { old[x.id] = x; });
       var added = fresh.filter(function (x) { return !old[x.id]; });
-      var changed = added.length || fresh.length !== s.reports.length || fresh.some(function (x) { var o = old[x.id]; return o && (o.job !== x.job || o.mediaFolder !== x.mediaFolder || o.photos !== x.photos || JSON.stringify(o.review) !== JSON.stringify(x.review)); });
+      var changed = added.length || fresh.length !== s.reports.length || fresh.some(function (x) { var o = old[x.id]; return o && (o.job !== x.job || o.mediaFolder !== x.mediaFolder || o.photos !== x.photos || (!o._dirty && JSON.stringify(o.review) !== JSON.stringify(x.review))); });
       var jobs = r[1].map(function (it) { var f = it.fields; return { itemId: it.id, num: f.Title, name: f.JobName || f.Title, active: f.Active !== false, foreman: f.Foreman || null, address: f.Address || '', gc: f.GC || '', gcEmail: f.GCEmail || '', gcProject: f.GCProject || '' }; }).filter(function (j) { return j.num; });
       var jobsChanged = JSON.stringify(jobs) !== JSON.stringify(s.jobs);
       if (!changed && !jobsChanged) return;
-      fresh.forEach(function (x) { var o = old[x.id]; if (o && o.photoData && o.mediaFolder === x.mediaFolder) x.photoData = o.photoData; });
+      fresh.forEach(function (x) {
+        var o = old[x.id]; if (!o) return;
+        if (o.photoData && o.mediaFolder === x.mediaFolder) { x.photoData = o.photoData; x.pdfs = o.pdfs; }
+        if (o._dirty) { x.review = o.review; x._dirty = true; } // office edits still saving: keep them
+      });
       s.reports = fresh; s.jobs = jobs;
       fresh.forEach(function (rep) { if (!s.people.some(function (p) { return p.id === rep.person; })) s.people.push(mkPerson(rep.person, rep.personName, { extra: true })); });
       LIVE.requests();
@@ -452,7 +460,11 @@
       if (!opts.makeRecord) return folder;
       stopCheck();
       return reportFolder(rep).then(function (path) {
-        return opts.makeRecord().catch(function (e) { console.warn('record pdf not made', e); return null; }).then(function (pdf) {
+        // The PDF step has its own time limit and listens to Stop. If it can't finish, the report still goes
+        // and the office can make the PDF later from SharePoint.
+        var limit = new Promise(function (res) { setTimeout(function () { res(null); }, 45000); });
+        var stop = new Promise(function (res, rej) { stopWaiters.push(rej); });
+        return Promise.race([opts.makeRecord().catch(function (e) { console.warn('record pdf not made', e); return null; }), limit, stop]).then(function (pdf) {
           stopCheck();
           if (!pdf) return folder || folderInfo(path).catch(function () { return null; });
           return uploadOne(path + '/' + pdf.name, pdf.blob, function () {}).then(function () { rep.recordPdf = pdf.name; return folder || folderInfo(path); });

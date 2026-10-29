@@ -565,3 +565,9 @@ body.live .side{height:100vh;height:100dvh}
 .modal > .obtn{align-self:flex-start}
 @media (max-width:1023px){.modal{max-height:calc(100dvh - 140px);top:calc(50% - 30px);padding:24px}}
 @media (max-width:1023px){.modal .acts{position:sticky;bottom:-24px;background:#fff;padding:12px 0 4px;margin-bottom:-4px}}
+/* Jobs table: the ··· menu of the last row may hang below the table */
+.tbl.jobs{overflow:visible;padding-bottom:0}
+.tbl.jobs thead th:first-child{border-top-left-radius:16px}.tbl.jobs thead th:last-child{border-top-right-radius:16px}
+.tbl.jobs tbody tr:last-child td:first-child{border-bottom-left-radius:16px}.tbl.jobs tbody tr:last-child td:last-child{border-bottom-right-radius:16px}
+.tbl.jobs{margin-bottom:120px}
+@media (max-width:1023px){.tbl.jobs tbody tr:last-child{border-radius:0 0 16px 16px}}

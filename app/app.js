@@ -251,7 +251,7 @@
       '<div class="pair">' + dateCard(d, e) + jobCard(d, e) + '</div>' + '<div class="wx">' + I('sun', 16, '#6B6262') + wx + '</div>' +
       '<div class="cols"><div class="col">' + work + plan + '</div><div class="col">' + mat + delay + safety + '</div></div>' +
       photosCard(d) + (locked ? '</div>' : '') +
-      '<div class="sendrow"><p class="help" style="margin:0">Goes to the office right away. Photos go in the job folder.</p><button class="btn btn-primary" data-act="send">SEND REPORT</button></div>';
+      '<div class="sendrow"><p class="help" style="margin:0">' + (d.sendKey ? 'Not sent yet. The report is locked until it goes through.' : 'Goes to the office right away. Photos go in the job folder.') + '</p><button class="btn btn-primary" data-act="send">SEND REPORT</button></div>';
     // phone order: work, materials, delays, safety, plan (cols use display:contents, so reorder for phone)
     if (!wide) body = body.replace('<div class="cols"><div class="col">' + work + plan + '</div><div class="col">' + mat + delay + safety + '</div></div>', work + mat + delay + safety + plan);
     $app.innerHTML = previewBar('f') + head + '<main class="ql">' + body + '</main>';
@@ -420,7 +420,7 @@
     var me = person(r.person), fl = [];
     if (r.mat.yes) fl.push('Needs materials'); if (r.delay.yes) fl.push('Delay'); if (r.safety.yes) fl.push('Safety');
     $app.innerHTML = previewBar('f') + '<main class="dark sent"><div class="okc">' + I('check', 38, '#fff') + '</div><h1>REPORT SENT</h1><p class="sub">' + (r.sentDate && r.sentDate !== r.date ? 'Your report for ' + shortDate(r.date) + ' is in. Thanks, ' : 'You’re done for today. Thanks, ') + esc(me.first) + '.</p>' +
-      '<div class="sum"><div><span>Job</span><b>' + esc(jobName(r)) + '</b></div><div><span>Report for</span><b>' + shortDate(r.date) + '</b></div><div><span>Sent</span><b>' + shortDate(r.sentDate || r.date) + ' · ' + sentText(r) + '</b></div><div><span>Photos</span><b>' + r.photos + '</b></div><div><span>Flagged</span><b>' + (fl.length ? fl.join(', ') : 'Nothing') + '</b></div></div>' +
+      '<div class="sum"><div><span>Job</span><b>' + esc(jobName(r)) + '</b></div><div><span>Report for</span><b>' + shortDate(r.date) + '</b></div><div><span>Sent</span><b>' + shortDate(r.sentDate || r.date) + ' · ' + sentText(r) + '</b></div><div><span>Photos & videos</span><b>' + (r.photoData && r.photoData.length ? mediaCount(r.photoData) : r.photos) + '</b></div><div><span>Flagged</span><b>' + (fl.length ? fl.join(', ') : 'Nothing') + '</b></div></div>' +
       '<div class="grow"></div><button class="btn btn-white" data-act="done">DONE</button><p class="cap">Next time you open the app it starts fresh.</p></main>';
   }
 
@@ -715,7 +715,7 @@
   function recordPdf(rep, photos) {
     var o = GC.original(rep), p = person(rep.person);
     var picks = (photos || []).map(function (ph, i) { return { ph: ph, i: i }; }).filter(function (x) { return x.ph && !isVid(x.ph); });
-    return Promise.all(picks.map(function (x) { return GC.toJpeg(photoSrc(x.ph)); })).then(function (imgs) {
+    return GC.toJpegs(picks.map(function (x) { return function () { return photoSrc(x.ph); }; })).then(function (imgs) {
       var m = { kind: 'record', job: jobInfo(rep), date: rep.date, weather: rep.weather, foreman: { name: rep.personName || p.name, role: p.role || '' }, sentDate: rep.sentDate, sentAt: rep.sentAt,
         sections: GC.SECTIONS.filter(function (sx) { return sx.k !== 'notes' && o[sx.k].length; }).map(function (sx) { return { t: sx.t, lines: o[sx.k] }; }),
         photos: imgs.map(function (im, k) { return { img: im, caption: caption(k + 1, (rep.taken || [])[picks[k].i] || picks[k].ph.taken) + (im ? '' : ' · could not be added, see the job folder') }; }),
@@ -727,7 +727,7 @@
   function sameDay(r) { return S().reports.filter(function (x) { return x !== r && x.job === r.job && x.date === r.date; }); }
   function combined(r) { var ids = rv(r).combine || []; return S().reports.filter(function (x) { return ids.indexOf(x.id) > -1; }); }
   // What the GC report contains right now, as text, so a re-send with no changes keeps the same revision number.
-  function gcHash(r) { var v = rv(r); return JSON.stringify([v.sections, v.photos, v.combine || []]); }
+  function gcHash(r) { var v = rv(r); return JSON.stringify([v.sections, v.photos, v.combine || [], v.otherPhotos || {}]); }
   function gcRev(r) { var sent = rv(r).sent || []; if (!sent.length) return 0; var last = sent[sent.length - 1]; return last.hash === gcHash(r) ? last.rev : last.rev + 1; }
   function loadAllMedia(list) { return Promise.all(list.map(function (x) { return LIVE.on && x.photos && !x.photoData && x.mediaFolder ? LIVE.loadMedia(x) : null; })); }
   function gcModel(r) {
@@ -735,11 +735,11 @@
     return loadAllMedia([r].concat(others)).then(function () {
       var chosen = [];
       (r.photoData || []).forEach(function (x, i) { if (!isVid(x) && (!v.photos || v.photos.indexOf(i) > -1)) chosen.push({ x: x, t: (r.taken || [])[i], who: others.length ? person(r.person).short : '' }); });
-      others.forEach(function (o) { (o.photoData || []).forEach(function (x, i) { if (!isVid(x)) chosen.push({ x: x, t: (o.taken || [])[i], who: person(o.person).short }); }); });
-      return Promise.all(chosen.map(function (c) { return GC.toJpeg(photoSrc(c.x)); })).then(function (imgs) {
+      others.forEach(function (o) { var sel = (v.otherPhotos || {})[o.id]; (o.photoData || []).forEach(function (x, i) { if (!isVid(x) && (!sel || sel.indexOf(i) > -1)) chosen.push({ x: x, t: (o.taken || [])[i], who: person(o.person).short }); }); });
+      return GC.toJpegs(chosen.map(function (c) { return function () { return photoSrc(c.x); }; })).then(function (imgs) {
         imgs.forEach(function (im, k) { if (!im) throw new Error('Photo ' + (k + 1) + ' couldn’t be loaded. Check the connection and try again'); });
         var all = [r].concat(others);
-        return { kind: 'gc', job: jobInfo(r), reportNo: v.no || nextReportNo(r), date: r.date, weather: r.weather, foreman: { name: r.personName || p.name, role: p.role || '' }, sentDate: r.sentDate, sentAt: r.sentAt,
+        return { kind: 'gc', job: jobInfo(r), reportNo: v.no || null, date: r.date, weather: r.weather, foreman: { name: r.personName || p.name, role: p.role || '' }, sentDate: r.sentDate, sentAt: r.sentAt,
           foremen: all.map(function (x) { return x.personName || person(x.person).name; }),
           prepared: all.map(function (x) { var px = person(x.person); return { name: x.personName || px.name, role: px.role || '', sentDate: x.sentDate, sentAt: x.sentAt }; }),
           sections: GC.SECTIONS.filter(function (sx) { return v.sections[sx.k] && v.sections[sx.k].on && GC.lines(v.sections[sx.k].text).length; }).map(function (sx) { return { t: sx.t, lines: GC.lines(v.sections[sx.k].text) }; }),
@@ -751,13 +751,13 @@
   }
   var gcSaveT = null;
   function gcSave(r, now) {
-    var v = rv(r); v.savedAt = Date.now(); v.reviewedBy = S().me; DB.save();
+    var v = rv(r); v.savedAt = Date.now(); v.reviewedBy = S().me; DB.save(); r._dirty = true;
     clearTimeout(gcSaveT);
     var st = document.getElementById('gcsave');
-    if (!LIVE.on) { if (st) st.textContent = 'Saved on this device'; return Promise.resolve(); }
+    if (!LIVE.on) { r._dirty = false; if (st) st.textContent = 'Saved on this device'; return Promise.resolve(); }
     if (!LIVE.hasReviewColumn()) { if (st) st.textContent = 'Can’t save edits yet: Alex needs to open the app once to finish an update.'; return Promise.resolve(); }
     if (st) st.textContent = 'Saving…';
-    var go2 = function () { return LIVE.saveReview(r).then(function () { var e = document.getElementById('gcsave'); if (e) e.textContent = 'All changes saved'; }, function (e) { console.error(e); var x = document.getElementById('gcsave'); if (x) x.textContent = e && e.status === 403 ? 'Your account can’t save changes to this report.' : 'Not saved: check the connection.'; throw e; }); };
+    var go2 = function () { return LIVE.saveReview(r).then(function () { r._dirty = false; var e = document.getElementById('gcsave'); if (e) e.textContent = 'All changes saved'; }, function (e) { console.error(e); var x = document.getElementById('gcsave'); if (x) x.textContent = e && e.status === 403 ? 'Your account can’t save changes to this report.' : 'Not saved: check the connection.'; throw e; }); };
     if (now) return go2();
     return new Promise(function (res) { gcSaveT = setTimeout(function () { go2().then(res, res); }, 800); });
   }
@@ -768,6 +768,12 @@
     if (GC.lines(cur.text).join('\n') === orig) return '';
     return '<div class="gcorig"><div class="l">FOREMAN WROTE</div><p>' + esc(orig || '(nothing)').replace(/\n/g, '<br>') + '</p><button class="u" data-act="gcrevert" data-id="' + r.id + '" data-k="' + k + '">Use the foreman’s words</button></div>';
   }
+  function gcRedraw(id) {
+    if (location.hash.indexOf('/gc/' + id) < 0 || $layer.firstChild) return;
+    var a = document.activeElement;
+    if (a && /INPUT|TEXTAREA/.test(a.tagName)) { var tmp = document.createElement('div'); tmp.innerHTML = renderGC(id); var np = tmp.querySelector('#gcphotos'), op = document.getElementById('gcphotos'); if (np && op) op.innerHTML = np.innerHTML; return; }
+    var y = window.scrollY; route(); window.scrollTo(0, y);
+  }
   function gcStatHTML(r) {
     var v = rv(r), sent = v.sent || [], drafts = v.drafts || [], last = sent[sent.length - 1], lastDraft = drafts[drafts.length - 1], rev = gcRev(r);
     return last ? pill('Sent to GC ' + GC.fmtStamp(last.at) + (last.rev ? ' · Revision ' + last.rev : ''), 'ok') + (rev !== last.rev ? '<span class="mut">You changed it since, so the next one goes out as Revision ' + rev + '.</span>' : '<span class="mut">No changes since it was sent.</span>') :
@@ -776,7 +782,9 @@
   function renderGC(id) {
     var r = S().reports.filter(function (x) { return x.id === id; })[0];
     if (!r) return '<a class="back" href="#/office/reports">' + I('chevron-left', 18) + 'All reports</a><p>Report not found.</p>';
-    if (LIVE.on && r.photos && !r.photoData && r.mediaFolder && !r._loading && !r._mediaErr) { r._loading = true; LIVE.loadMedia(r).then(function () { r._loading = false; if (location.hash.indexOf('/gc/' + r.id) > -1 && !$layer.firstChild) { var y = window.scrollY; route(); window.scrollTo(0, y); } }, function (e) { console.error(e); r._loading = false; r._mediaErr = true; if (location.hash.indexOf('/gc/' + r.id) > -1 && !$layer.firstChild) { var y = window.scrollY; route(); window.scrollTo(0, y); } }); }
+    [r].concat(combined(r)).forEach(function (x) {
+      if (LIVE.on && x.photos && !x.photoData && x.mediaFolder && !x._loading && !x._mediaErr) { x._loading = true; LIVE.loadMedia(x).then(function () { x._loading = false; gcRedraw(r.id); }, function (e) { console.error(e); x._loading = false; x._mediaErr = true; gcRedraw(r.id); }); }
+    });
     var v = rv(r), p = person(r.person), j = job(r.job), sent = v.sent || [], drafts = v.drafts || [];
     if (v.combinedInto) {
       var lead = gcReport(v.combinedInto);
@@ -797,9 +805,18 @@
       return '<label class="gcpic' + (on ? ' on' : '') + '"' + (th ? ' style="background-image:url(' + th + ')"' : '') + '><input type="checkbox" data-gc="photo" data-i="' + q.i + '"' + (on ? ' checked' : '') + ' aria-label="Include photo ' + (n + 1) + '"><span class="ck">' + I('check', 14, '#fff') + '</span></label>';
     }).join('') + '</div>' + (vids ? '<p class="gchint">Videos can’t go in a PDF. The report says they are in MKI’s job folder.</p>' : '') : vids ? '<p class="mut">This report has ' + (vids === 1 ? 'a video' : vids + ' videos') + ' and no photos. Videos can’t go in a PDF, so the report says they are in MKI’s job folder.</p>' : '<p class="mut">No photos with this report.</p>';
     var others = sameDay(r), comb = v.combine || [];
+    combined(r).forEach(function (o) {
+      var sel = (v.otherPhotos || {})[o.id], ps = (o.photoData || []).map(function (x, i) { return { x: x, i: i }; }).filter(function (q) { return !isVid(q.x); });
+      if (o.photos && !o.photoData) { photos += '<p class="mut">Loading ' + esc(person(o.person).short) + '’s photos…</p>'; return; }
+      if (!ps.length) return;
+      photos += '<p class="gchint" style="margin:6px 0 0">' + esc(person(o.person).short) + '’s photos</p><div class="gcpics">' + ps.map(function (q, n) {
+        var on = !sel || sel.indexOf(q.i) > -1, th = thumbOf(q.x);
+        return '<label class="gcpic' + (on ? ' on' : '') + '"' + (th ? ' style="background-image:url(' + th + ')"' : '') + '><input type="checkbox" data-gc="photo" data-o="' + o.id + '" data-i="' + q.i + '"' + (on ? ' checked' : '') + ' aria-label="Include ' + esc(person(o.person).short) + '’s photo ' + (n + 1) + '"><span class="ck">' + I('check', 14, '#fff') + '</span></label>';
+      }).join('') + '</div>';
+    });
     var combo = others.length ? '<section class="card gccard"><div class="gchead"><span class="gct">Other reports for this job and day</span></div><p class="gchint" style="margin-top:-4px">GCs usually expect one daily report per job. Combining adds the other foreman’s answers to the text above, labelled with his name, and his photos to the PDF.</p>' + others.map(function (x) {
-      var xv = x.review || {}, mine = comb.indexOf(x.id) > -1, elsewhere = xv.combinedInto && xv.combinedInto !== r.id;
-      return '<div class="gcother"><span><b>' + esc(person(x.person).short) + '</b> · sent ' + sentText(x) + '</span>' + (mine ? '<span>' + pill('Combined', 'ok', 1) + ' <button class="u" data-act="gcuncombine" data-id="' + r.id + '" data-o="' + x.id + '">Separate</button></span>' : elsewhere ? '<span class="mut">In another GC report</span>' : (xv.sent && xv.sent.length) ? '<span class="mut">Already sent on its own</span>' : '<button class="obtn tertiary" data-act="gccombine" data-id="' + r.id + '" data-o="' + x.id + '">Combine into this report</button>') + '</div>';
+      var xv = x.review || {}, mine = comb.indexOf(x.id) > -1, elsewhere = xv.combinedInto && xv.combinedInto !== r.id, hasOwn = xv.combine && xv.combine.length;
+      return '<div class="gcother"><span><b>' + esc(person(x.person).short) + '</b> · sent ' + sentText(x) + '</span>' + (mine ? '<span>' + pill('Combined', 'ok', 1) + ' <button class="u" data-act="gcuncombine" data-id="' + r.id + '" data-o="' + x.id + '">Separate</button></span>' : elsewhere ? '<span class="mut">In another GC report</span>' : hasOwn ? '<span class="mut">Already combines other reports. <a class="u" href="#/office/gc/' + x.id + '">Open it</a></span>' : (xv.sent && xv.sent.length) ? '<span class="mut">Already sent on its own</span>' : '<button class="obtn tertiary" data-act="gccombine" data-id="' + r.id + '" data-o="' + x.id + '">Combine into this report</button>') + '</div>';
     }).join('') + '</section>' : '';
     var stat = gcStatHTML(r);
     var gcEmails = (j && j.gcEmail) || '';
@@ -812,7 +829,7 @@
         '<div class="fld"><label for="gc-p">GC project number</label><input id="gc-p" data-gcjob="gcProject" value="' + esc(j.gcProject || '') + '" autocomplete="off"></div>' +
         '<div class="fld wide"><label for="gc-e">GC email<span class="opt">Separate several with commas</span></label><input id="gc-e" type="email" multiple data-gcjob="gcEmail" value="' + esc(gcEmails) + '" autocomplete="off"></div></div></section>' : '<section class="card gccard"><p class="mut" style="margin:0">This report is on a job the office hasn’t approved yet. Approve or merge it on the Jobs page to add the GC details.</p></section>') +
       combo + secs +
-      '<section class="card gccard"><div class="gchead"><span class="gct">Photos for the GC</span><span><button class="u" data-act="gcall" data-id="' + r.id + '" data-v="1">All</button> · <button class="u" data-act="gcall" data-id="' + r.id + '" data-v="0">None</button></span></div>' + photos + '</section>' +
+      '<section class="card gccard" id="gcphotos"><div class="gchead"><span class="gct">Photos for the GC</span><span><button class="u" data-act="gcall" data-id="' + r.id + '" data-v="1">All</button> · <button class="u" data-act="gcall" data-id="' + r.id + '" data-v="0">None</button></span></div>' + photos + '</section>' +
       '<div class="gcbar"><span id="gcsave" class="mut">' + (v.savedAt ? 'All changes saved' : 'Changes save as you type') + '</span><div class="gcacts">' +
         '<button class="obtn tertiary" data-act="gcpdf" data-id="' + r.id + '">' + I('file-text', 18) + 'Download PDF</button>' +
         (LIVE.on ? '<button class="obtn tertiary" data-act="gcfolder" data-id="' + r.id + '">' + I('folder', 18) + 'Save to job folder</button><button class="obtn primary" data-act="gcmail" data-id="' + r.id + '">Email to GC</button>' : '') + '</div></div>';
@@ -822,8 +839,10 @@
   function gcBusy(text) { openLayer('<div class="busy" role="status" aria-live="polite"><div class="spin"></div><p id="busytxt">' + esc(text) + '</p></div>'); }
   function gcMake(r) {
     gcBusy('Making the PDF…'); var v = rv(r);
-    if (!v.no) v.no = nextReportNo(r);
-    return gcSave(r, true).catch(function () {}).then(function () { return gcModel(r); }).then(function (m) { return GC.makePdf(m).then(function (b) { return { m: m, blob: b, name: GC.fileName(m) }; }); });
+    // The report number is only given when it can be saved, so the same number is never handed out twice.
+    var canStore = !LIVE.on || LIVE.hasReviewColumn(), fresh = !v.no && canStore;
+    if (fresh) v.no = nextReportNo(r);
+    return gcSave(r, true).catch(function (e) { if (fresh) { v.no = null; throw new Error('the report couldn’t be saved first. Check the connection and try again'); } }).then(function () { return gcModel(r); }).then(function (m) { return GC.makePdf(m).then(function (b) { return { m: m, blob: b, name: GC.fileName(m) }; }); });
   }
   function mb(n) { return (n / 1048576).toFixed(1) + ' MB'; }
   // Lines from another foreman's report, labelled with his name, for a combined GC report.
@@ -848,7 +867,7 @@
     return '<div class="toprow"><h1 class="h1">Jobs</h1><button class="obtn primary" data-act="addjob">' + I('plus', 18, '#fff') + 'Add job</button></div>' +
       (s.requests.length ? '<div class="reqc"><div class="top">' + pill(s.requests.length + (s.requests.length === 1 ? ' new job request' : ' new job requests'), 'warn') + 'Foremen can ask for a job that isn’t on the list. Approve it, or merge it into a job that already exists.</div>' + reqs + '</div>' : '') +
       '<div class="filters"><label class="osearch">' + I('search', 18, '#6B6262') + '<input type="search" aria-label="Search jobs" placeholder="Search jobs" value="' + esc(F.jq) + '" data-fil="jq" autocomplete="off"></label>' + dd('jobsShow', F.jobsShow, [['active', 'Active jobs'], ['finished', 'Finished jobs'], ['all', 'All jobs']]) + '</div>' +
-      '<div class="tbl cards"><table><thead><tr><th>JOB</th><th>FOREMAN</th><th>LAST REPORT</th><th>REPORTS</th><th>STATUS</th><th></th></tr></thead><tbody id="jobsbody">' + (rows || '<tr><td colspan="6" class="mut">No jobs here.</td></tr>') + '</tbody></table></div>' +
+      '<div class="tbl cards jobs"><table><thead><tr><th>JOB</th><th>FOREMAN</th><th>LAST REPORT</th><th>REPORTS</th><th>STATUS</th><th></th></tr></thead><tbody id="jobsbody">' + (rows || '<tr><td colspan="6" class="mut">No jobs here.</td></tr>') + '</tbody></table></div>' +
       '<div class="ofoot">Finished jobs drop off the foreman’s list but keep their reports and photos. Job numbers match the job folders. Tap ··· to edit a job, mark it finished or reopen it. Add the job site address so reports get that town’s weather.</div>';
   }
   function nextNum() { var yy = String(new Date().getFullYear()).slice(2), max = 3000; S().jobs.forEach(function (j) { var p = j.num.split('-'); if (p[0] === yy) max = Math.max(max, +p[1]); }); return yy + '-' + (max + 1); }
@@ -956,7 +975,6 @@
         });
         lv.combine = (lv.combine || []).concat([orp.id]); ov.combinedInto = lr.id;
         gcSave(lr, true).catch(function () {}); if (LIVE.on && LIVE.hasReviewColumn()) sync(LIVE.saveReview(orp)); DB.save();
-        loadAllMedia([orp]).then(function () { if (location.hash.indexOf('/gc/') > -1 && !$layer.firstChild) route(); });
         var yc = window.scrollY; route(); window.scrollTo(0, yc); toast(person(orp.person).short + '’s report is combined into this one.'); break;
       case 'gcuncombine':
         var lr2 = gcReport(t.dataset.id), or2 = gcReport(t.dataset.o), lv2 = rv(lr2), ov2 = rv(or2), tag = person(or2.person).short + ': ';
@@ -978,7 +996,7 @@
           return LIVE.savePdf(rr9, out.name, out.blob).then(function () { return LIVE.markRecord(rr9, out.name); });
         }).then(function () { closeLayer(); route(); toast('The as-sent PDF is now in the job folder.'); }, gcFail); break;
       case 'gcrevert': var rr0 = gcReport(t.dataset.id); rv(rr0).sections[t.dataset.k].text = GC.original(rr0)[t.dataset.k].slice(); gcSave(rr0); var yr = window.scrollY; route(); window.scrollTo(0, yr); break;
-      case 'gcall': var ra = gcReport(t.dataset.id); rv(ra).photos = t.dataset.v === '1' ? null : []; gcSave(ra); var ya = window.scrollY; route(); window.scrollTo(0, ya); break;
+      case 'gcall': var ra = gcReport(t.dataset.id); rv(ra).photos = t.dataset.v === '1' ? null : []; rv(ra).otherPhotos = {}; combined(ra).forEach(function (o) { rv(ra).otherPhotos[o.id] = t.dataset.v === '1' ? null : []; }); gcSave(ra); var ya = window.scrollY; route(); window.scrollTo(0, ya); break;
       case 'gcpdf':
         gcMake(gcReport(t.dataset.id)).then(function (out) {
           closeLayer(); var u = URL.createObjectURL(out.blob), a = document.createElement('a'); a.href = u; a.download = out.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
@@ -1063,10 +1081,11 @@
     if (t.dataset.gc === 'text') return;
     if (t.dataset.gc === 'on') { v.sections[t.dataset.k].on = t.checked; gcSave(r); var sec = t.closest('.gcsec'); if (sec) { sec.classList.toggle('off', !t.checked); var lab = sec.querySelector('.gcin'); if (lab) lab.textContent = t.checked ? 'In the GC report' : 'Not sent to the GC'; } var st1 = document.getElementById('gcstat'); if (st1) st1.innerHTML = gcStatHTML(r); return; }
     if (t.dataset.gc === 'photo') {
-      var all = (r.photoData || []).map(function (x, i) { return isVid(x) ? -1 : i; }).filter(function (i) { return i > -1; });
-      var cur = v.photos ? v.photos.slice() : all.slice(), i = +t.dataset.i;
+      var src = t.dataset.o ? gcReport(t.dataset.o) : r, store = t.dataset.o ? ((v.otherPhotos = v.otherPhotos || {})[t.dataset.o]) : v.photos;
+      var all = (src.photoData || []).map(function (x, i) { return isVid(x) ? -1 : i; }).filter(function (i) { return i > -1; });
+      var cur = store ? store.slice() : all.slice(), i = +t.dataset.i;
       cur = t.checked ? cur.concat([i]).filter(function (x, k, a) { return a.indexOf(x) === k; }) : cur.filter(function (x) { return x !== i; });
-      v.photos = cur.length === all.length ? null : cur; t.closest('.gcpic').classList.toggle('on', t.checked); gcSave(r); var st2 = document.getElementById('gcstat'); if (st2) st2.innerHTML = gcStatHTML(r); return;
+      if (t.dataset.o) v.otherPhotos[t.dataset.o] = cur.length === all.length ? null : cur; else v.photos = cur.length === all.length ? null : cur; t.closest('.gcpic').classList.toggle('on', t.checked); gcSave(r); var st2 = document.getElementById('gcstat'); if (st2) st2.innerHTML = gcStatHTML(r); return;
     }
     if (t.dataset.gcjob) {
       var j = job(r.job); if (!j) return; var before = j[t.dataset.gcjob];
@@ -1127,8 +1146,9 @@
   }
   function addPhotos(files) {
     var d = D(), list = Array.prototype.slice.call(files, 0, MAXP - d.photos.length), vids = d.photos.filter(isVid).length, msgs = [];
+    var chainP = Promise.resolve();
     var jobs = list.map(function (f) {
-      return new Promise(function (res) {
+      return chainP = chainP.then(function () { return new Promise(function (res) {
         var url = URL.createObjectURL(f);
         if (/^video\//.test(f.type)) {
           if (vids >= MAXV) { msgs.push('Up to ' + MAXV + ' videos per report.'); URL.revokeObjectURL(url); return res(null); }
@@ -1152,7 +1172,7 @@
           c2.toBlob(function (b) { var key = 'p' + Date.now() + Math.random().toString(36).slice(2, 6); LIVE.blobs.put(key, b || f).then(function () { res({ key: key, thumb: thumb, name: f.name }); }, function () { msgs.push('This phone is out of space for more photos.'); res(null); }); }, 'image/jpeg', 0.86);
         };
         img.onerror = function () { res(null); }; img.src = url;
-      });
+      }); });
     });
     var times = list.map(exifTime);
     Promise.all([Promise.all(jobs), Promise.all(times)]).then(function (both) { var urls = both[0]; urls.forEach(function (u, i) { if (u && typeof u === 'object' && both[1][i]) u.taken = both[1][i]; }); urls.forEach(function (u) { if (u) d.photos.push(u); }); d.uploaded = []; saveSoon(); refresh('q-photos'); if (msgs.length) toast(msgs[0]); });

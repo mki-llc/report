@@ -69,19 +69,32 @@
       if (!s) return null;
       return new Promise(function (res) {
         var img = new Image(), url = typeof s === 'string' ? s : URL.createObjectURL(s);
+        var done = false, finish = function (v) { if (done) return; done = true; if (typeof s !== 'string') URL.revokeObjectURL(url); img.onload = img.onerror = null; res(v); };
+        // A phone that runs short of memory can fail here; the photo is then left out instead of hanging.
         img.onload = function () {
-          var k = Math.min(1, (max || 1000) / Math.max(img.width, img.height)), c = document.createElement('canvas');
-          c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-          if (typeof s !== 'string') URL.revokeObjectURL(url);
-          try { res({ data: c.toDataURL('image/jpeg', 0.7), w: c.width, h: c.height }); } catch (e) { res(null); }
+          try {
+            var k = Math.min(1, (max || 1000) / Math.max(img.width, img.height)), c = document.createElement('canvas');
+            c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+            var cx = c.getContext('2d'); if (!cx) return finish(null);
+            cx.drawImage(img, 0, 0, c.width, c.height);
+            var out = { data: c.toDataURL('image/jpeg', 0.7), w: c.width, h: c.height };
+            c.width = c.height = 0;
+            finish(out);
+          } catch (e) { finish(null); }
         };
-        img.onerror = function () { if (typeof s !== 'string') URL.revokeObjectURL(url); res(null); };
+        img.onerror = function () { finish(null); };
+        setTimeout(function () { finish(null); }, 20000);
         img.src = url;
       });
     }).catch(function () { return null; });
   }
 
+  // Turns a list of photo sources into PDF images one at a time (all at once can run a phone out of memory).
+  function toJpegs(list) {
+    var out = [], chain = Promise.resolve();
+    list.forEach(function (src) { chain = chain.then(function () { return toJpeg(typeof src === 'function' ? src() : src); }).then(function (im) { out.push(im); }); });
+    return chain.then(function () { return out; });
+  }
   function fmtDate(key) { var p = key.split('-'); return new Date(+p[0], +p[1] - 1, +p[2], 12).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); }
   function fmtStamp(ms) { if (!ms) return ''; var d = new Date(ms); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); }
   function t12(hm) { if (!hm) return ''; var p = hm.split(':'), h = +p[0]; return (h % 12 || 12) + ':' + p[1] + ' ' + (h >= 12 ? 'PM' : 'AM'); }
@@ -175,9 +188,9 @@
   }
 
   function fileName(m) {
-    var base = m.date + ' Daily Report ' + (m.job.num || 'New job') + (m.kind === 'record' ? ' ' + m.foreman.name + ' as sent' : '') + (m.rev ? ' Rev ' + m.rev : '');
+    var base = m.date + ' Daily Report ' + (m.job.num || 'New job') + (m.kind === 'record' ? ' ' + m.foreman.name + ' as sent' : m.reportNo ? ' No ' + m.reportNo : '') + (m.rev ? ' Rev ' + m.rev : '');
     return base.replace(/[\\/:*?"<>|#%]/g, ' ').replace(/\s+/g, ' ').trim() + '.pdf';
   }
 
-  window.GC = { preload: function () { return loadPdfLib().catch(function () {}); }, safe: safe, SECTIONS: SECTIONS, original: original, newReview: newReview, makePdf: makePdf, toJpeg: toJpeg, fileName: fileName, lines: lines, fmtStamp: fmtStamp };
+  window.GC = { preload: function () { return loadPdfLib().catch(function () {}); }, safe: safe, SECTIONS: SECTIONS, original: original, newReview: newReview, makePdf: makePdf, toJpeg: toJpeg, toJpegs: toJpegs, fileName: fileName, lines: lines, fmtStamp: fmtStamp };
 })();

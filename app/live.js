@@ -16,7 +16,8 @@
   var BASE = ['User.Read', 'Sites.ReadWrite.All'];
   var MANAGE = ['Sites.Manage.All'];
   var SPS = ['https://' + CFG.host + '/AllSites.FullControl'];
-  var REDIRECT = /github\.io$/.test(location.hostname) ? 'https://mki-llc.github.io/report/app/' : location.origin + location.pathname;
+  // Must match a redirect address registered on the "MKI Report" app in Microsoft Entra.
+  var REDIRECT = location.hostname === 'report.mkillc.com' ? 'https://report.mkillc.com/app/' : /github\.io$/.test(location.hostname) ? 'https://mki-llc.github.io/report/app/' : location.origin + location.pathname;
   var OFFICE_TITLES = /owner|president|ceo|project manager|operations|office|admin|estimat|account/i;
 
   // Who counts as field crew. Their names and titles come from Microsoft 365, so adding, renaming or

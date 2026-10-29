@@ -452,11 +452,11 @@
       if (!opts.makeRecord) return folder;
       stopCheck();
       return reportFolder(rep).then(function (path) {
-        return opts.makeRecord().then(function (pdf) {
+        return opts.makeRecord().catch(function (e) { console.warn('record pdf not made', e); return null; }).then(function (pdf) {
           stopCheck();
-          if (!pdf) return folder;
+          if (!pdf) return folder || folderInfo(path).catch(function () { return null; });
           return uploadOne(path + '/' + pdf.name, pdf.blob, function () {}).then(function () { rep.recordPdf = pdf.name; return folder || folderInfo(path); });
-        }).catch(function (e) { if (e && e.cancelled) throw e; console.warn('record pdf', e); return folder; });
+        });
       });
     }).then(stopCheck).then(function (folder) {
       if (folder) { rep.mediaFolder = folder.id; rep.mediaUrl = folder.url; rep.mediaPath = folder.path; }
@@ -467,6 +467,10 @@
     });
   };
   LIVE.hasReviewColumn = function () { return !!cols.OfficeReview; };
+  LIVE.markRecord = function (r, name) {
+    r.recordPdf = name;
+    return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { AppData: JSON.stringify({ v: 1, work: r.work, plan: r.plan, requestNote: r.note || '', taken: r.taken || [], recordPdf: name }) });
+  };
   LIVE.saveReview = function (r) {
     if (!cols.OfficeReview) return Promise.reject(Object.assign(new Error('Review column missing'), { status: 0 }));
     return api('PATCH', listPath(L.reports) + '/items/' + r.itemId + '/fields', { OfficeReview: JSON.stringify(r.review) });

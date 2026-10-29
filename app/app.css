@@ -553,3 +553,15 @@ body.live .side{height:100vh;height:100dvh}
 @media (max-width:1023px){.gcgrid{grid-template-columns:1fr}.gcbar{bottom:calc(env(safe-area-inset-bottom) + 64px)}.gcacts{width:100%}.gcacts .obtn{flex:1}}
 .gcgrid .opt,.gccard .opt{font-weight:400;color:var(--mut);margin-left:6px}
 .gcgrid label{font:600 14px var(--in)}
+.lockwrap{opacity:.6;pointer-events:none}
+.lockwrap *{pointer-events:none}
+.banner.pend span{flex:1}
+.banner.pend .u{color:inherit;font:600 14px var(--in);margin-left:4px;min-height:32px}
+/* The open ··· menu sits above the job rows below it (on phones each row is a card that would cover it) */
+.tbl tr.mopen{position:relative;z-index:30}
+.tbl.cards tr.mopen td.go{z-index:31}
+.gcother{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line);font:15px var(--in)}
+.gcstat .u{font:600 14px var(--in);min-height:36px}
+.modal > .obtn{align-self:flex-start}
+@media (max-width:1023px){.modal{max-height:calc(100dvh - 140px);top:calc(50% - 30px);padding:24px}}
+@media (max-width:1023px){.modal .acts{position:sticky;bottom:-24px;background:#fff;padding:12px 0 4px;margin-bottom:-4px}}

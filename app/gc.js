@@ -22,6 +22,15 @@
     { k: 'plan', t: 'Plan for next workday', on: false, hint: 'Off by default: a look-ahead can read as a commitment.' },
     { k: 'notes', t: 'Notes from MKI', on: false, hint: 'Anything the office wants to add for the GC.' }
   ];
+  // The PDF's built-in fonts only know Western characters (Windows-1252). Common phone symbols are
+  // swapped for plain ones and anything else (emoji etc.) is dropped, so nothing prints as garbage.
+  var SWAP = { '→': '->', '←': '<-', '↑': '^', '↓': 'v', '⇒': '=>', '≥': '>=', '≤': '<=', '≠': '!=', '≈': '~', '✓': 'OK', '✔': 'OK', '✅': 'OK', '✗': 'X', '✘': 'X', '❌': 'X', '−': '-', '‐': '-', '‑': '-', '⁄': '/', '′': "'", '″': '"', '\u00a0': ' ', '\u2009': ' ', '\u202f': ' ' };
+  var CP1252 = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
+  function safe(t) {
+    return String(t == null ? '' : t).replace(/[\u2190-\u21ff\u2264\u2265\u2260\u2248\u2713\u2714\u2705\u2717\u2718\u274c\u2212\u2010\u2011\u2044\u2032\u2033\u00a0\u2009\u202f]/g, function (c) { return SWAP[c] != null ? SWAP[c] : ''; })
+      .replace(/[\s\S]/g, function (c) { var n = c.charCodeAt(0); return (n >= 32 && n < 127) || (n >= 160 && n <= 255) || c === '\n' || CP1252.indexOf(c) > -1 ? c : ''; })
+      .replace(/[ \t]{2,}/g, ' ');
+  }
   function lines(x) { return (Array.isArray(x) ? x : String(x || '').split(/\n+/)).map(function (t) { return String(t || '').replace(/^\s*\d+\.\s*/, '').trim(); }).filter(Boolean); }
   // What the foreman said, per section, as a list of lines.
   function original(r) {
@@ -61,11 +70,11 @@
       return new Promise(function (res) {
         var img = new Image(), url = typeof s === 'string' ? s : URL.createObjectURL(s);
         img.onload = function () {
-          var k = Math.min(1, (max || 1400) / Math.max(img.width, img.height)), c = document.createElement('canvas');
+          var k = Math.min(1, (max || 1000) / Math.max(img.width, img.height)), c = document.createElement('canvas');
           c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
           c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
           if (typeof s !== 'string') URL.revokeObjectURL(url);
-          try { res({ data: c.toDataURL('image/jpeg', 0.78), w: c.width, h: c.height }); } catch (e) { res(null); }
+          try { res({ data: c.toDataURL('image/jpeg', 0.7), w: c.width, h: c.height }); } catch (e) { res(null); }
         };
         img.onerror = function () { if (typeof s !== 'string') URL.revokeObjectURL(url); res(null); };
         img.src = url;
@@ -84,15 +93,16 @@
       var doc = new JsPDF({ unit: 'pt', format: 'letter' }), W = 612, H = 792, X = 44, CW = W - 2 * X, y = 0;
       function color(c) { doc.setTextColor(c[0], c[1], c[2]); }
       function font(style, size) { doc.setFont('helvetica', style); doc.setFontSize(size); }
-      function need(h) { if (y + h > H - 70) { doc.addPage(); y = 50; } }
-      function txt(s, x, yy, o) { doc.text(String(s), x, yy, o || {}); }
+      function need(h) { if (y + h > H - 50) { doc.addPage(); y = 50; } }
+      function txt(s, x, yy, o) { doc.text(safe(s), x, yy, o || {}); }
+      function wrap(s, w) { return doc.splitTextToSize(safe(s), w); }
       // header
       doc.setFillColor(RED[0], RED[1], RED[2]); doc.rect(0, 0, W, 6, 'F');
       font('bold', 20); color(RED); txt(COMPANY, X, 46);
       font('normal', 9); color(MUT); txt('Plumbing subcontractor', X, 60);
       font('bold', 16); color(INK); txt(m.kind === 'record' ? 'FOREMAN DAILY REPORT' : 'DAILY REPORT', W - X, 44, { align: 'right' });
       font('normal', 10); color(MUT);
-      txt((m.reportNo ? 'Report No. ' + m.reportNo : '') + (m.rev ? '  ·  Revision ' + m.rev : ''), W - X, 60, { align: 'right' });
+      txt((m.kind === 'gc' && m.reportNo ? 'Report No. ' + m.reportNo : '') + (m.rev ? '  ·  Revision ' + m.rev : ''), W - X, 60, { align: 'right' });
       y = 82;
       if (m.kind === 'record') { doc.setFillColor(SOFT[0], SOFT[1], SOFT[2]); doc.rect(X, y - 12, CW, 20, 'F'); font('normal', 9); color(MUT); txt('As submitted by the foreman. Internal record, not edited.', X + 8, y + 1); y += 22; }
       // info grid
@@ -100,13 +110,13 @@
         ['Project', (m.job.num ? m.job.num + '  ' : '') + m.job.name], ['Date', fmtDate(m.date)],
         ['Site address', m.job.address || '—'], ['Weather', m.weather || 'Not available'],
         ['General contractor', m.job.gc || '—'], ['GC project no.', m.job.gcProject || '—'],
-        ['Foreman', m.foreman.name], ['Submitted', (m.sentDate && m.sentDate !== m.date ? fmtDate(m.sentDate).replace(/, \d{4}$/, '') + ', ' : '') + t12(m.sentAt) + (m.sentDate && m.sentDate !== m.date ? ' (late)' : '')]
+        [m.foremen && m.foremen.length > 1 ? 'Foremen' : 'Foreman', m.foremen && m.foremen.length > 1 ? m.foremen.join(', ') : m.foreman.name], ['Submitted', (m.sentDate && m.sentDate !== m.date ? fmtDate(m.sentDate).replace(/, \d{4}$/, '') + ', ' : '') + t12(m.sentAt) + (m.sentDate && m.sentDate !== m.date ? ' (late)' : '')]
       ];
       // two columns of label-over-value cells
       doc.setDrawColor(LINE[0], LINE[1], LINE[2]); doc.setLineWidth(0.6);
       var colW = CW / 2, padR = 14;
       for (var i = 0; i < rows.length; i += 2) {
-        var hRow = 0, cells = [rows[i], rows[i + 1]].map(function (cell) { font('normal', 10); var v = doc.splitTextToSize(String(cell[1]), colW - padR); hRow = Math.max(hRow, v.length * 12.5); return [cell[0], v]; });
+        var hRow = 0, cells = [rows[i], rows[i + 1]].map(function (cell) { font('normal', 10); var v = wrap(cell[1], colW - padR); hRow = Math.max(hRow, v.length * 12.5); return [cell[0], v]; });
         cells.forEach(function (cell, j) {
           var cx = X + j * colW;
           font('bold', 7.5); color(MUT); txt(cell[0].toUpperCase(), cx, y + 8);
@@ -123,10 +133,10 @@
         var numbered = s.lines.length > 1;
         s.lines.forEach(function (l, n) {
           font('normal', 10.5); color(INK);
-          var pre = numbered ? (n + 1) + '.' : '', wrap = doc.splitTextToSize(l, CW - (numbered ? 20 : 0));
-          need(wrap.length * 14 + 4);
+          var pre = numbered ? (n + 1) + '.' : '', wl = wrap(l, CW - (numbered ? 20 : 0));
+          need(wl.length * 14 + 4);
           if (pre) txt(pre, X, y);
-          doc.text(wrap, X + (numbered ? 20 : 0), y); y += wrap.length * 14 + 3;
+          doc.text(wl, X + (numbered ? 20 : 0), y); y += wl.length * 14 + 3;
         });
         y += 12;
       });
@@ -135,7 +145,7 @@
       need(m.kind === 'gc' ? 96 : 50);
       doc.setDrawColor(LINE[0], LINE[1], LINE[2]); doc.setLineWidth(0.6); doc.line(X, y, X + CW, y); y += 16;
       font('normal', 9.5); color(INK);
-      txt('Prepared by ' + m.foreman.name + (m.foreman.role ? ', ' + m.foreman.role : '') + ', sent from the field ' + (m.sentDate ? fmtDate(m.sentDate).replace(/, \d{4}$/, '') + ' at ' : '') + t12(m.sentAt) + '.', X, y); y += 14;
+      (m.prepared || [{ name: m.foreman.name, role: m.foreman.role, sentDate: m.sentDate, sentAt: m.sentAt }]).forEach(function (pp) { txt('Prepared by ' + pp.name + (pp.role ? ', ' + pp.role : '') + ', sent from the field ' + (pp.sentDate ? fmtDate(pp.sentDate).replace(/, \d{4}$/, '') + ' at ' : '') + t12(pp.sentAt) + '.', X, y); y += 14; });
       if (m.reviewed && m.reviewed.name) { txt('Reviewed by ' + m.reviewed.name + (m.reviewed.role ? ', ' + m.reviewed.role : '') + ', ' + fmtStamp(m.reviewed.at) + '.', X, y); y += 14; }
       if (m.rev) { color(MUT); txt('Revision ' + m.rev + ' replaces the earlier version of this report.', X, y); y += 14; color(INK); }
       if (m.kind === 'gc') { y += 18; color(MUT); txt('Received by (GC): ______________________________     Date: ______________', X, y); y += 10; }
@@ -143,7 +153,7 @@
       if (m.photos.length) {
         doc.addPage(); y = 50;
         font('bold', 11); color(RED); txt('PHOTOS', X, y); y += 6; doc.setDrawColor(RED[0], RED[1], RED[2]); doc.setLineWidth(1); doc.line(X, y, X + CW, y); y += 14;
-        var gap = 14, pw = (CW - gap) / 2, ph = pw * 0.75;
+        var gap = 14, pw = (CW - gap) / 2, ph = Math.min(pw * 0.75, 186);
         m.photos.forEach(function (p, n) {
           var col = n % 2; if (col === 0) need(ph + 30);
           var px = X + col * (pw + gap), img = p.img;
@@ -169,5 +179,5 @@
     return base.replace(/[\\/:*?"<>|#%]/g, ' ').replace(/\s+/g, ' ').trim() + '.pdf';
   }
 
-  window.GC = { SECTIONS: SECTIONS, original: original, newReview: newReview, makePdf: makePdf, toJpeg: toJpeg, fileName: fileName, lines: lines, fmtStamp: fmtStamp };
+  window.GC = { preload: function () { return loadPdfLib().catch(function () {}); }, safe: safe, SECTIONS: SECTIONS, original: original, newReview: newReview, makePdf: makePdf, toJpeg: toJpeg, fileName: fileName, lines: lines, fmtStamp: fmtStamp };
 })();

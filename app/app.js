@@ -513,7 +513,7 @@
     }).join('');
     return '<div class="toprow"><div><div class="wdl">' + wd(k) + '</div><h1 class="h1">' + md(k) + '</h1></div><div class="filters">' + dd('job', F.job, jobOpts('All jobs')) + dd('who', F.who, whoOpts('All foremen')) + '</div></div>' +
       '<div class="stats">' + stat('REPORTS TODAY', weekend ? String(today.length) : sentExp + ' / ' + expected.length, weekend ? 'No reports expected on weekends' : !expected.length ? (today.length + ' sent · no daily reminders on') : missing.length ? missing.map(function (p) { return p.short; }).join(', ') + (missing.length > 1 ? ' haven’t' : ' hasn’t') + ' sent yet' : 'Everyone has sent') +
-      stat('MISSING TODAY', missing.length, missing.length ? (new Date().getHours() * 60 + new Date().getMinutes() >= 1050 ? 'Reminder sent at 5:30 PM' : 'Reminder goes out at 5:30 PM') : 'Nobody missing', missing.length ? 'err' : 'ok') +
+      stat('MISSING TODAY', missing.length, missing.length ? (missing.length === 1 ? 'Hasn’t sent yet' : 'Haven’t sent yet') : 'Nobody missing', missing.length ? 'err' : 'ok') +
       stat('NEEDS MATERIALS', mats.length, mats.length ? mats.map(jobName).join(', ') : 'Nothing requested today', mats.length ? 'warn' : 'ok') +
       stat('SAFETY ISSUES', safetyWk.length, safetyWk.length ? 'This week' : 'None this week', safetyWk.length ? 'err' : 'ok') + '</div>' +
       '<div class="sec-t">Foremen today</div>' + (fms ? '<div class="fms">' + fms + '</div>' : '<div class="blk"><p class="mut">' + (weekend ? 'It’s the weekend, so nobody is expected to send a report today.' : 'Nobody has daily reminders on.') + '</p></div>') +
@@ -572,7 +572,7 @@
       return '<button class="ptile ' + cls + '" data-act="viewer" data-id="' + r.id + '" data-i="' + i + '" aria-label="Open item ' + (i + 1) + ' of ' + r.photos + '"' + (th ? ' style="background:url(' + th + ') center/cover"' : '') + '>' + inner + playBadge(it) + more + '</button>';
     }
     return '<a class="back" href="#/office/reports">' + I('chevron-left', 18) + 'All reports</a>' +
-      '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + (late ? shortDate(r.sentDate) + ' ' : '') + sentText(r) + '</p></div><div class="filters"><button class="obtn tertiary" data-act="' + (LIVE.on && r.mediaUrl ? 'folder' : 'soon') + '" data-id="' + r.id + '">' + I('folder', 18) + (LIVE.on ? 'Open photo folder' : 'Open job folder') + '</button><button class="obtn secondary" data-act="soon">' + I('file-text', 18) + 'Download PDF</button></div></div>' +
+      '<div class="dhead"><div><h1 class="h1">' + esc(jobName(r)) + '</h1><p>' + wd(r.date) + ', ' + md(r.date) + ' · ' + esc(p.short) + ' · Sent ' + (late ? shortDate(r.sentDate) + ' ' : '') + sentText(r) + '</p></div><div class="filters"><button class="obtn tertiary" data-act="' + (LIVE.on && r.mediaUrl ? 'folder' : 'soon') + '" data-id="' + r.id + '">' + I('folder', 18) + (LIVE.on ? 'Open photo folder' : 'Open job folder') + '</button></div></div>' +
       '<div class="dbody"><div class="dl-col"><div class="facts">' +
       '<div class="fact"><div class="l">WEATHER</div><div class="v">' + esc(/-?\d+°/.test(r.weather || '') ? r.weather.match(/-?\d+°/)[0] : '—') + '</div><div class="s">' + esc(r.weather ? r.weather.split(',')[0] : 'From weather records') + '</div></div>' +
       '<div class="fact"><div class="l">PHOTOS & VIDEOS</div><div class="v">' + r.photos + '</div><div class="s">' + (r.videos ? mediaCount(r.photoData && r.photoData.length === r.photos ? r.photoData : []) || (r.videos + ' video') : r.photos ? 'Tap one to open it' : 'None sent') + '</div></div>' +
@@ -582,7 +582,7 @@
       blk('Weather, site, or other-trade delays', r.delay.yes ? r.delay.text : '', r.delay.yes ? pill('Delay', 'warn') : pill('No delays', 'ok')) +
       blk('Safety or quality issues', r.safety.yes ? r.safety.text : '', r.safety.yes ? pill('Safety issue', 'err') : pill('No incidents', 'ok')) +
       list('Plan for next workday', r.plan) + '</div>' +
-      '<div class="pbox"><div class="toprow"><span class="blk" style="padding:0"><span class="l">PHOTOS & VIDEOS · ' + r.photos + '</span></span>' + (r.photos ? '<button class="obtn link" data-act="soon">Download all</button>' : '') + '</div>' +
+      '<div class="pbox"><div class="toprow"><span class="blk" style="padding:0"><span class="l">PHOTOS & VIDEOS · ' + r.photos + '</span></span>' + '</div>' +
       (r.photos ? ph(0, 'big') + (r.photos > 1 ? '<div class="two">' + ph(1, '') + (r.photos > 2 ? ph(2, '') : '<div style="background:none"></div>') + '</div>' : '') + '<div class="ofoot">Tap a photo to open it full size</div>' : '<div class="ofoot">No photos with this report.</div>') + '</div></div>';
   }
 
@@ -648,10 +648,10 @@
     var mon0 = dObj(days[0]), range = mon0.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' to ' + (sun.getMonth() === mon0.getMonth() ? sun.getDate() : sun.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
     var dh = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map(function (d) { return '<th class="wkcell hide-m">' + d + '</th>'; }).join('');
     var dc = days.map(function () { return '<col class="c-d hide-m">'; }).join('');
-    return '<div class="toprow"><h1 class="h1">Foremen</h1><button class="obtn tertiary" data-act="soon">' + I('plus', 18) + 'Add foreman</button></div>' +
+    return '<div class="toprow"><h1 class="h1">Foremen</h1></div>' +
       '<div class="filters wk">' + dd('week', 'this', [['this', 'This week · ' + range]]) + '<span class="mut" style="font:14px var(--in)">Who sent a report each day</span></div>' +
       '<div class="tbl"><div style="overflow-x:auto"><table class="fmt"><colgroup><col class="c-n">' + dc + '<col class="c-w"><col class="c-r"></colgroup><thead><tr><th>FOREMAN</th>' + dh + '<th>THIS WEEK</th><th><span class="hide-m">REMINDER</span><span class="show-m" title="Daily reminder">' + I('bell', 16) + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
-      '<div class="remc"><div class="sec-t" style="font-size:15px;color:var(--mut)">Reminders</div><div class="r">' + I('bell', 20) + '<span style="flex:1">Anyone at MKI can sign in and send a report any day of the week. People with Daily reminder on are expected Monday to Friday: if they haven’t sent one by 5:30 PM they get a text, and if it’s still missing at 7 PM you get an email. Weekend reports show up here but are never counted as missed.</span><button class="obtn link" data-act="soon">Change times</button></div></div>';
+      '<div class="remc"><div class="sec-t" style="font-size:15px;color:var(--mut)">How this list works</div><div class="r">' + I('info', 20) + '<span style="flex:1">Everyone whose Microsoft 365 job title includes Foreman, Field Supervisor or Superintendent shows here, and people leave the list when their account is blocked or removed. The Reminder switch marks who is expected to send a report Monday to Friday. Weekend reports show up but are never counted as missed. Automatic reminder texts and emails are not set up yet.</span></div></div>';
   }
 
   /* ---------------- events ---------------- */
@@ -693,7 +693,7 @@
       case 'yn': if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); d = D(); d[t.dataset.k].yes = t.dataset.v === '1'; if (d.errors) delete d.errors[t.dataset.k]; saveSoon(); refresh('q-' + t.dataset.k); break;
       case 'rmphoto': d = D(); var gone = d.photos.splice(+t.dataset.i, 1)[0]; if (LIVE.on && gone && gone.key) LIVE.blobs.del(gone.key).catch(function () {}); saveSoon(); refresh('q-photos'); break;
       case 'send': send(); break;
-      case 'soon': toast('Works once the app is connected to MKI’s SharePoint.'); break;
+      case 'soon': break;
       case 'chip': F.chips[t.dataset.k] = !F.chips[t.dataset.k]; F.more = 9; route(); break;
       case 'more': F.more += 9; document.getElementById('results') ? (document.getElementById('results').innerHTML = resultsHTML()) : route(); break;
       case 'sug': F[t.dataset.k] = t.dataset.v; F.q = ''; F.more = 9; route(); break;

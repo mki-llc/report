@@ -96,7 +96,7 @@
     }
     if (LIVE.on && S().role !== 'office') return go(me ? '#/' : '#/signin');
     var page = parts[1] || 'today';
-    if (page === 'today' || page === 'reports') backTo = page;
+    if (page === 'today' || page === 'reports' || page === 'foremen' || page === 'jobs') backTo = page;
     if (page === 'reports') return office('reports', renderReports);
     if (page === 'report') return office('reports', function () { return renderDetail(parts[2]); });
     if (page === 'gc') return office('reports', function () { return renderGC(parts[2]); });
@@ -621,7 +621,8 @@
     $app.innerHTML = previewBar('o') + '<div class="of">' + side + '<main class="main">' + fn() + '</main></div>' + tabs;
   }
   var backTo = 'reports';
-  function backLink() { return '<a class="back" href="' + (backTo === 'today' ? '#/office' : '#/office/reports') + '">' + I('chevron-left', 18) + (backTo === 'today' ? 'Today' : 'All reports') + '</a>'; }
+  var BACKS = { today: ['#/office', 'Today'], reports: ['#/office/reports', 'All reports'], foremen: ['#/office/foremen', 'Foremen'], jobs: ['#/office/reports', 'All reports'] };
+  function backLink() { var b = BACKS[backTo] || BACKS.reports; return '<a class="back" href="' + b[0] + '">' + I('chevron-left', 18) + b[1] + '</a>'; }
   var F = { job: '', who: '', range: '7', flag: '', q: '', chips: {}, more: 9, jobsShow: 'active', jq: '' };
   function dd(name, val, opts) { return '<label class="dd"><select aria-label="' + esc(opts[0][1]) + '" data-fil="' + name + '">' + opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' + I('chevron-down', 16) + '</label>'; }
   function jobOpts(all) { return [['', all]].concat(S().jobs.filter(function (j) { return j.active || j.num === F.job; }).sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (j) { return [j.num, j.name]; })); }
@@ -658,7 +659,7 @@
     }).join('');
     return '<div class="toprow"><div><div class="wdl">' + wd(k) + '</div><h1 class="h1">' + md(k) + '</h1></div><div class="filters">' + dd('job', F.job, jobOpts('All jobs')) + dd('who', F.who, whoOpts('All foremen')) + '</div></div>' +
       '<div class="stats">' + stat('REPORTS TODAY', weekend ? String(today.length) : sentExp + ' / ' + expected.length, weekend ? 'No reports expected on weekends' : !expected.length ? (today.length + ' sent · no daily reminders on') : missing.length ? missing.map(function (p) { return p.short; }).join(', ') + (missing.length > 1 ? ' haven’t' : ' hasn’t') + ' sent yet' : 'Everyone has sent') +
-      stat('MISSING TODAY', missing.length, missing.length ? (missing.length === 1 ? 'Hasn’t sent yet' : 'Haven’t sent yet') : 'Nobody missing', missing.length ? 'err' : 'ok') +
+      stat('MISSING TODAY', missing.length, missing.length ? (missing.length === 1 ? 'Hasn’t sent yet' : 'Haven’t sent yet') : 'Nobody missing', missing.length ? (new Date().getHours() >= 19 ? 'err' : '') : 'ok') +
       stat('NEEDS MATERIALS', mats.length, mats.length ? mats.map(jobName).join(', ') : 'Nothing requested today', mats.length ? 'warn' : 'ok', mats.length === 1 ? ' data-go="#/office/report/' + mats[0].id + '"' : mats.length ? ' data-act="statf" data-k="mat"' : '') +
       stat('SAFETY ISSUES', safetyWk.length, safetyWk.length ? 'This week' : 'None this week', safetyWk.length ? 'err' : 'ok', safetyWk.length === 1 ? ' data-go="#/office/report/' + safetyWk[0].id + '"' : safetyWk.length ? ' data-act="statf" data-k="safety"' : '') + '</div>' +
       '<div class="sec-t">Foremen today</div>' + (fms ? '<div class="fms">' + fms + '</div>' : '<div class="blk"><p class="mut">' + (weekend ? 'It’s the weekend, so nobody is expected to send a report today.' : 'Nobody has daily reminders on.') + '</p></div>') +
@@ -900,7 +901,7 @@
     var rows = list.map(function (j) {
       var rs = s.reports.filter(function (r) { return r.job === j.num; }).sort(function (a, b) { return b.date.localeCompare(a.date); });
       var fm = j.foreman ? person(j.foreman).short : rs[0] ? 'Last: ' + person(rs[0].person).short : '—';
-      return '<tr class="click" tabindex="0" data-act="jobreports" data-num="' + esc(j.num) + '" aria-label="See reports for ' + esc(j.name) + '"><td class="job"><span class="num">' + esc(j.num) + '</span>' + esc(j.name) + '</td><td>' + esc(fm) + '</td><td class="hide-m">' + (rs[0] ? relDate(rs[0].date) : 'No reports yet') + '</td><td class="hide-m">' + rs.length + '</td><td>' + (j.active ? pill('Active', 'ok') : '<span class="pill neutral">Finished</span>') + '</td>' +
+      return '<tr' + (rs.length ? ' class="click" tabindex="0" data-act="jobreports" data-num="' + esc(j.num) + '" aria-label="See reports for ' + esc(j.name) + '"' : '') + '><td class="job"><span class="num">' + esc(j.num) + '</span>' + esc(j.name) + '</td><td>' + esc(fm) + '</td><td class="hide-m">' + (rs[0] ? relDate(rs[0].date) : 'No reports yet') + '</td><td class="hide-m">' + rs.length + '</td><td>' + (j.active ? pill('Active', 'ok') : '<span class="pill neutral">Finished</span>') + '</td>' +
         '<td class="go"><div class="menu-w"><button class="mbtn" data-act="jobmenu" data-num="' + esc(j.num) + '" aria-haspopup="menu" aria-label="More for ' + esc(j.name) + '">' + I('more-horizontal', 18) + '</button></div></td></tr>';
     }).join('');
     return '<div class="toprow"><h1 class="h1">Jobs</h1><button class="obtn primary" data-act="addjob">' + I('plus', 18, '#fff') + 'Add job</button></div>' +
@@ -978,7 +979,7 @@
         var uo = offs().filter(function (o) { return o.person === S().me && o.date === t.dataset.day; });
         S().offs = offs().filter(function (o) { return uo.indexOf(o) < 0; }); DB.save();
         if (LIVE.on) uo.forEach(function (o) { if (o.itemId) LIVE.unmarkOff(o).catch(function () { toast('Couldn’t undo. Check your signal and try again.'); offs().push(o); DB.save(); }); });
-        go('#/'); toast('Undone. You’re not marked off.'); break;
+        location.replace('#/'); toast('Undone. You’re not marked off.'); break;
       case 'signin': if (LIVE.on) { LIVE.signIn(); break; } S().me = 'aharbin'; DB.save(); go('#/'); break;
       case 'folder': var fr = S().reports.filter(function (x) { return x.id === t.dataset.id; })[0]; if (fr && fr.mediaUrl) window.open(fr.mediaUrl, '_blank', 'noopener'); break;
       case 'resetdemo': DB.reset(); toast('Sample data reset.'); go('#/signin'); break;

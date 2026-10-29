@@ -582,12 +582,14 @@ body.live .side{height:100vh;height:100dvh}
 
 /* Polish pass (Oct 29) */
 .tbl td.job{overflow-wrap:break-word}
-@media (min-width:1024px) and (max-width:1279px){.tbl.cards th:nth-child(5),.tbl.cards td:nth-child(5){display:none}}
+@media (min-width:1024px) and (max-width:1279px){.tbl.cards:not(.jobs) th:nth-child(5),.tbl.cards:not(.jobs) td:nth-child(5){display:none}}
 button.stat{text-align:left;position:relative;font:inherit;color:inherit}
-button.stat>svg:last-child{position:absolute;top:18px;right:14px}
+button.stat{padding-right:34px}
+button.stat>svg:last-child{position:absolute;top:18px;right:12px}
 @media (hover:hover){button.stat:hover{box-shadow:0 2px 10px rgba(0,0,0,.08)}}
 .empty-r{color:var(--mut)}.empty-r .u{margin-left:8px;color:var(--ink);font-weight:600}
 .wkl{font:600 15px var(--in);color:var(--ink)}
 button.dot.ok{cursor:pointer}
 @media (hover:hover){button.dot.ok:hover{box-shadow:0 0 0 2px #067647}}
 @media (max-width:699px){.filters:has(.osearch){flex-wrap:wrap}.filters .osearch{flex:1 1 100%}.remc .r>span{flex-basis:100%!important;margin-left:0!important}}
+td.date-td{white-space:nowrap}
